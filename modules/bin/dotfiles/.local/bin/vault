@@ -213,4 +213,4 @@ case "$1" in
         echo "Usage: vault {init|open [mods]|apply [mods]|remove [mods]|seal|status|cd|diff}"
         exit 1
         ;;
-case)
+esac
