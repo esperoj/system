@@ -4,56 +4,52 @@ if [ -n "$_PROFILE_SOURCED" ]; then
 fi
 export _PROFILE_SOURCED=1
 
-# Debug message (visible during login/manual source)
 echo "Running ${HOME}/.profile"
 
 # --- 2. BASE ENVIRONMENT ---
 export MACHINE_TYPE=""
-export EDITOR="emacs" # Fitting for your workflow
-
-# Load main .env if it exists
-if [ -f "${HOME}/.env" ]; then
-    set -a; . "${HOME}/.env"; set +a
-fi
-
-# ASDF Version Manager
-if [ -d "$HOME/.asdf" ]; then
-    . "$HOME/.asdf/asdf.sh"
-fi
+export EDITOR="emacs"
 
 # --- 3. PATH & LIBRARY HELPERS ---
-# Idempotent LD_LIBRARY_PATH
 case ":$LD_LIBRARY_PATH:" in
     *":$HOME/.local/lib:"*) ;;
     *) export LD_LIBRARY_PATH="$HOME/.local/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ;;
 esac
 
-# --- 4. HOST/MACHINE SPECIFIC LOGIC ---
+# --- 4. HOST & PLATFORM CONFIGURATION ---
 _HOSTNAME=$(hostname)
 
-# Pubnix / Temporary Directory Logic
-if [ "$MACHINE_TYPE" = "pubnix" ]; then
-    case "$_HOSTNAME" in
-        "core.envs.net"|"de1"|"verntil")
-            export TMPDIR="/run/user/$(id -u)/tmp" ;;
-        *)
-            export TMPDIR="/tmp/$(whoami)" ;;
-    esac
+# Unified Ephemeral & Session Directory Mapping
+if [ -n "$TERMUX_VERSION" ]; then
+    # Android Termux Environment
+    export TMPDIR="${TMPDIR:-/data/data/com.termux/files/usr/tmp}"
+    export RAMFS_SESSION_DIR="$TMPDIR/vault-session"
+else
+    # Standard Linux Setup
+    export RAMFS_SESSION_DIR="/run/user/$(id -u)/vault-session"
 
-    if [ ! -d "${TMPDIR}" ]; then
-        mkdir -p "${TMPDIR}"
-        chmod 700 "${TMPDIR}"
-        for dir in .cache .cargo .npm tmp; do
-            mkdir -p "${TMPDIR}/$dir"
-            rm -rf "${HOME}/$dir"
-            ln -s "${TMPDIR}/$dir" "${HOME}/$dir"
-        done
+    if [ "$MACHINE_TYPE" = "pubnix" ]; then
+        case "$_HOSTNAME" in
+            "core.envs.net"|"de1"|"verntil") export TMPDIR="/run/user/$(id -u)/tmp" ;;
+            *)                               export TMPDIR="/tmp/$(whoami)" ;;
+        case
+        
+        if [ ! -d "${TMPDIR}" ]; then
+            mkdir -p "${TMPDIR}" && chmod 700 "${TMPDIR}"
+            for dir in .cache .cargo .npm tmp; do
+                mkdir -p "${TMPDIR}/$dir"
+                rm -rf "${HOME}/$dir"
+                ln -s "${TMPDIR}/$dir" "${HOME}/$dir"
+            done
+        fi
     fi
 fi
 
+# Derive standard environment hooks from the explicit session path
+export VAULT_CHECKOUT_DIR="$RAMFS_SESSION_DIR/checkout"
+
 # BSD Python Paths
 if [ "$_HOSTNAME" = "bsd.tilde.team" ]; then
-    # POSIX way to expand glob into variable
     for _py_path in "${HOME}"/.local/lib/python3.*/site-packages; do
         if [ -d "$_py_path" ]; then
             export PYTHONPATH="${PYTHONPATH}${PYTHONPATH:+:}$_py_path"
@@ -64,7 +60,6 @@ fi
 
 # --- 5. AUTOMATION FUNCTIONS ---
 
-# Load modular env files
 load_all_envs() {
     _env_dir="$HOME/.config/env"
     if [ -d "$_env_dir" ]; then
@@ -76,12 +71,10 @@ load_all_envs() {
 }
 load_all_envs
 
-# Vault Initialization
+# Vault Initialization Hook
 if [ -n "$VAULT_CHECKOUT_DIR" ] && [ ! -d "$VAULT_CHECKOUT_DIR" ]; then
     vault open git ssh rclone base
-    # Secure files immediately
     find "$VAULT_CHECKOUT_DIR" -type f ! -executable -exec chmod 600 {} +
 fi
 
-# Clean up local variables
 unset _HOSTNAME _py_path
