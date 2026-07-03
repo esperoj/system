@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+
+. "${LIB_DIR}/sh/os.sh"
+
+if ! command -v 7z > /dev/null 2>&1; then    
+    echo "7z not found. Installing 7z..."
+    case "$OS" in
+        "freebsd")
+            pkg-install pkg 7zip "7-zip-[0-9]*"
+            ;;
+        "linux")
+            pkg-install ghbin ip7z/7zip "${OS}-%arch:x86_64=x64:aarch64=arm64%.tar.xz$" "7z"
+            ;;
+        *)
+            echo "Error: Unknown OS '$OS'" >&2
+            exit 1
+            ;;
+    esac
+else
+    echo "✓ 7z is already installed."
+fi

@@ -1,0 +1,14 @@
+echo "Running ${HOME}/.zshrc"
+
+autoload -Uz compinit
+compinit
+
+ZSH_THEME="robbyrussell"
+CASE_SENSITIVE="true"
+zstyle ':omz:update' mode auto
+zstyle ':omz:update' frequency 13
+DISABLE_UNTRACKED_FILES_DIRTY="true"
+plugins=(fzf git)
+source "${HOME}/.oh-my-zsh/oh-my-zsh.sh"
+
+source "${HOME}/.profile"

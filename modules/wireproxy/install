@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+
+. "${LIB_DIR}/sh/os.sh"
+
+if ! command -v wireproxy > /dev/null 2>&1; then    
+    echo "wireproxy not found. Installing wireproxy..."
+    case "$OS" in
+        "freebsd")
+            pkg-install pkg wireproxy "wireproxy-[0-9]*"
+            ;;
+        "linux")
+            pkg-install ghbin windtf/wireproxy "wireproxy_${OS}_%arch:x86_64=amd64:aarch64=arm64%.tar.gz$" "wireproxy"
+            ;;
+        *)
+            echo "Error: Unknown OS '$OS'" >&2
+            exit 1
+            ;;
+    esac
+else
+    echo "✓ wireproxy is already installed."
+fi

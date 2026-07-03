@@ -1,0 +1,2 @@
+CRON_TZ=UTC
+SHELL=/bin/bash

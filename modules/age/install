@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+
+. "${LIB_DIR}/sh/os.sh"
+
+if ! command -v age > /dev/null 2>&1; then    
+    echo "age not found. Installing age..."
+    case "$OS" in
+        "freebsd")
+            pkg-install pkg age "age-[0-9]*"
+            ;;
+        "linux")
+            pkg-install bin "https://dl.filippo.io/age/latest?for=${OS}/${ARCH}" age
+            ;;
+        *)
+            echo "Error: Unknown OS '$OS'" >&2
+            exit 1
+            ;;
+    esac
+else
+    echo "✓ age is already installed."
+fi

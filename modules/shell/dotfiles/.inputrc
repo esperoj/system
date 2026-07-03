@@ -1,0 +1,34 @@
+# --- General Settings ---
+# Ignore case for all completions
+set completion-ignore-case on
+# Show all matching results on first tab press
+set show-all-if-ambiguous on
+# Treat hyphens and underscores as equivalent
+set completion-map-case on
+# Colorize the completion list
+set colored-stats on
+set colored-completion-prefix on
+
+# --- Tab Completion Behavior (Zsh-style) ---
+# Show common prefix, then cycle
+set menu-complete-display-prefix on
+
+# Cycle through completions with Tab
+"TAB": menu-complete
+# Shift-Tab to cycle backward
+"\e[Z": menu-complete-backward
+
+# --- Navigation & History ---
+# Use Ctrl-p and Ctrl-n for history (home-row friendly)
+"\C-p": history-search-backward
+"\C-n": history-search-forward
+
+# Use Alt-p and Alt-n for non-incremental search (optional but handy)
+"\ep": non-incremental-reverse-search-history
+"\en": non-incremental-forward-search-history
+
+# --- Productivity Boosters ---
+# Immediately expand ~ to the full path
+set expand-tilde on
+# Don't ring the bell (it's distracting)
+set bell-style none

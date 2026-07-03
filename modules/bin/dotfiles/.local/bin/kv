@@ -1,0 +1,83 @@
+#!/bin/sh
+# kv - A minimalist, Redis-like KV store mimicking redis-cli behavior.
+
+if [ -d "./.kv-store" ]; then
+    STORE="./.kv-store"
+else
+    STORE="${KV_STORE:-$HOME/.local/state/kv}"
+fi
+
+mkdir -p "$STORE"
+
+# Internal Helpers
+k2p() { echo "$1" | tr ':' '/'; }
+p2k() { echo "$1" | tr '/' ':'; }
+
+with_lock() {
+    _lockfile="$STORE/$(k2p "$1").lock"
+    shift
+    if command -v flock >/dev/null 2>&1; then
+        flock -x "$_lockfile" "$@"
+    else
+        "$@" 
+    fi
+}
+
+case "$1" in
+    set)
+        [ -z "$3" ] && { echo "Error: SET requires key and value"; exit 1; }
+        _path="$STORE/$(k2p "$2")"
+        mkdir -p "$(dirname "$_path")"
+        printf '%s' "$3" > "$_path.tmp" && mv "$_path.tmp" "$_path"
+        ;;
+
+    append)
+        [ -z "$3" ] && { echo "Error: APPEND requires key and value"; exit 1; }
+        _path="$STORE/$(k2p "$2")"
+        mkdir -p "$(dirname "$_path")"
+        with_lock "$2" sh -c "printf '%s' \"$3\" >> \"$_path\""
+        ;;
+
+    get)
+        _path="$STORE/$(k2p "$2")"
+        if [ -f "$_path" ]; then
+            cat "$_path"
+            # Add newline only if in a terminal for readability
+            [ -t 1 ] && echo
+        else
+            echo "nil"
+        fi
+        ;;
+
+    mget)
+        shift
+        _i=1
+        for _k in "$@"; do
+            _path="$STORE/$(k2p "$_k")"
+            if [ -f "$_path" ]; then
+                # mget always prints newlines for list formatting
+                printf "%d) %s -> \"%s\"\n" "$_i" "$_k" "$(cat "$_path")"
+            else
+                printf "%d) %s -> nil\n" "$_i" "$_k"
+            fi
+            _i=$((_i + 1))
+        done
+        ;;
+
+    keys)
+        _pattern=$(k2p "${2:-*}")
+        (cd "$STORE" && find . -path "./$_pattern" -type f ! -name "*.lock") | sed 's|^\./||' | sort | while read -r _p; do
+            p2k "$_p"
+        done
+        ;;
+
+    del)
+        _path="$STORE/$(k2p "$2")"
+        rm -f "$_path" "$_path.lock"
+        ;;
+
+    *)
+        echo "Usage: kv {set|get|mget|keys|append|del} [key] [value]"
+        exit 1
+        ;;
+esac

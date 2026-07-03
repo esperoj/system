@@ -1,0 +1,217 @@
+#!/bin/sh
+# vault - Sovereign Module Vault Manager
+# Principles: Text-first, offline-first, minimal moving parts, hash-based identity.
+
+set -e
+
+# --- Configuration & State Mapping ---
+VAULT_ROOT="$HOME/.vault"
+ENCRYPTED_DB="$VAULT_ROOT/vault.fossil.age"
+
+# Ephemeral tmpfs session mapping
+RAMFS_SESSION_DIR="/run/user/$(id -u)/vault-session"
+DECRYPTED_DB="$RAMFS_SESSION_DIR/vault.fossil"
+CHECKOUT_DIR="$RAMFS_SESSION_DIR/checkout"
+STOW_STATE_FILE="$RAMFS_SESSION_DIR/.active_stow_modules"
+
+# Cryptography fallbacks
+: "${AGE_IDENTITIES_FILE:=$HOME/.config/age/keys.txt}"
+: "${AGE_RECIPIENTS:=age15wngjkyhr32euwd9jaecdeq4vqms9nz6wh08erjr20nn3vmyteasfa9f6n}"
+
+# --- Internal Helpers ---
+
+_is_open() {
+    [ -d "$CHECKOUT_DIR" ]
+}
+
+_vault_dot() {
+    # Forces 'dot' to treat the RAM checkout as the source of modules
+    MODULES_DIR="$CHECKOUT_DIR" dot "$@"
+}
+
+_update_state() {
+    action="$1" # 'add' or 'del'
+    mod="$2"
+    touch "$STOW_STATE_FILE"
+    case "$action" in
+        add)
+            echo "$mod" >> "$STOW_STATE_FILE"
+            # Deduplicate the list
+            tmp_f=$(mktemp)
+            sort -u "$STOW_STATE_FILE" > "$tmp_f"
+            mv "$tmp_f" "$STOW_STATE_FILE"
+            ;;
+        del)
+            tmp_f=$(mktemp)
+            grep -v "^$mod$" "$STOW_STATE_FILE" > "$tmp_f" || true
+            mv "$tmp_f" "$STOW_STATE_FILE"
+            ;;
+    esac
+}
+
+# --- Command Implementations ---
+
+cmd_init() {
+    echo "Initializing new sovereign vault..."
+    mkdir -p "$VAULT_ROOT"
+    mkdir -p "$RAMFS_SESSION_DIR"
+    chmod 700 "$RAMFS_SESSION_DIR"
+    
+    cd "$RAMFS_SESSION_DIR" || exit 1
+    fossil new vault.fossil > /dev/null
+    
+    age -e -r "$AGE_RECIPIENTS" -o "$ENCRYPTED_DB.tmp" vault.fossil
+    mv "$ENCRYPTED_DB.tmp" "$ENCRYPTED_DB"
+    
+    cd "$HOME"
+    rm -rf "$RAMFS_SESSION_DIR"
+    echo "Vault initialized successfully at $ENCRYPTED_DB."
+}
+
+cmd_open() {
+    shift # Remove 'open' from args
+
+    if ! _is_open; then
+        if [ ! -f "$ENCRYPTED_DB" ]; then
+            echo "Error: No encrypted vault found at $ENCRYPTED_DB"
+            exit 1
+        fi
+
+        echo "Decrypting vault to RAM..."
+        mkdir -p "$CHECKOUT_DIR"
+        chmod 700 "$RAMFS_SESSION_DIR"
+
+        age -d -i "$AGE_IDENTITIES_FILE" -o "$DECRYPTED_DB" "$ENCRYPTED_DB"
+
+        cd "$CHECKOUT_DIR" || exit 1
+        fossil open "$DECRYPTED_DB" > /dev/null
+        fossil settings autosync off > /dev/null
+        echo "Vault storage decrypted and opened."
+    fi
+
+    # If modules were provided, apply them immediately
+    if [ "$#" -gt 0 ]; then
+        cmd_apply "$@"
+    fi
+}
+
+cmd_apply() {
+    if ! _is_open; then
+        echo "Error: Vault is not open. Run 'vault open' first."
+        exit 1
+    fi
+
+    for mod in "$@"; do
+        if [ -d "$CHECKOUT_DIR/$mod" ]; then
+            _vault_dot apply "$mod"
+            _update_state add "$mod"
+        else
+            echo "Warning: Module '$mod' not found in vault."
+        fi
+    done
+}
+
+cmd_remove() {
+    if ! _is_open; then
+        echo "Error: Vault is not open."
+        exit 1
+    fi
+
+    for mod in "$@"; do
+        _vault_dot remove "$mod"
+        _update_state del "$mod"
+    done
+}
+
+cmd_status() {
+    if _is_open; then
+        echo "Vault status: OPEN"
+        if [ -f "$STOW_STATE_FILE" ]; then
+            echo "Active stows: $(tr '\n' ' ' < "$STOW_STATE_FILE")"
+        fi
+        echo "---------------------------------------------------"
+        cd "$CHECKOUT_DIR" || exit 1
+        
+        CHANGES=$(fossil changes)
+        EXTRAS=$(fossil extras --dotfiles)
+        
+        [ -n "$CHANGES" ] && echo "$CHANGES"
+        [ -n "$EXTRAS" ] && echo "$EXTRAS" | sed 's/^/EXTRA      /'
+        [ -z "$CHANGES" ] && [ -z "$EXTRAS" ] && echo "No uncommitted changes."
+    else
+        echo "Vault status: SEALED"
+    fi
+}
+
+cmd_cd() {
+    if ! _is_open; then
+        echo "Error: Vault is not open."
+        exit 1
+    fi
+    echo "Entering vault subshell at $CHECKOUT_DIR"
+    cd "$CHECKOUT_DIR" || exit 1
+    "${SHELL:-/bin/sh}"
+}
+
+cmd_diff() {
+    if ! _is_open; then
+        echo "Error: Vault is not open."
+        exit 1
+    fi
+    cd "$CHECKOUT_DIR" || exit 1
+    fossil diff --tk 2>/dev/null || fossil diff
+}
+
+cmd_seal() {
+    if ! _is_open; then
+        echo "Vault is already sealed."
+        exit 0
+    fi
+
+    echo "Sealing vault..."
+    
+    # 1. Automatic Unstow of all tracked modules
+    if [ -f "$STOW_STATE_FILE" ]; then
+        echo "Removing active stows..."
+        # shellcheck disable=SC2046
+        _vault_dot remove $(cat "$STOW_STATE_FILE")
+        rm "$STOW_STATE_FILE"
+    fi
+
+    # 2. Fossil cleanup
+    cd "$CHECKOUT_DIR" || exit 1
+    fossil addremove --dotfiles > /dev/null
+    
+    if [ -n "$(fossil changes)" ]; then
+        echo "Changes detected. Committing..."
+        fossil commit -m "Auto-commit on seal $(date '+%Y-%m-%d %H:%M:%S')" --allow-empty > /dev/null
+    fi
+    fossil close > /dev/null
+
+    # 3. Atomic Encrypt
+    cd "$RAMFS_SESSION_DIR" || exit 1
+    echo "Encrypting database..."
+    age -e -r "$AGE_RECIPIENTS" -o "$ENCRYPTED_DB.tmp" vault.fossil
+    mv "$ENCRYPTED_DB.tmp" "$ENCRYPTED_DB"
+
+    # 4. Wipe RAM session
+    cd "$HOME"
+    rm -rf "$RAMFS_SESSION_DIR"
+    echo "Vault sealed and session wiped."
+}
+
+# --- Command Router ---
+case "$1" in
+    init)       cmd_init ;;
+    open)       cmd_open "$@" ;;
+    apply)      shift; cmd_apply "$@" ;;
+    remove)     shift; cmd_remove "$@" ;;
+    seal|close) cmd_seal ;;
+    status)     cmd_status ;;
+    cd)         cmd_cd ;;
+    diff)       cmd_diff ;;
+    *)
+        echo "Usage: vault {init|open [mods]|apply [mods]|remove [mods]|seal|status|cd|diff}"
+        exit 1
+        ;;
+esac

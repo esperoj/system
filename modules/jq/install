@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+
+. "${LIB_DIR}/sh/os.sh"
+
+if ! command -v jq > /dev/null 2>&1; then    
+    echo "jq not found. Installing jq..."
+    case "$OS" in
+        "freebsd")
+            pkg-install pkg jq "jq-[0-9]*"
+            ;;
+        "linux")
+            pkg-install ghbin jqlang/jq "jq-${OS}-%arch:x86_64=amd64:aarch64=arm64%$" "jq"
+            ;;
+        *)
+            echo "Error: Unknown OS '$OS'" >&2
+            exit 1
+            ;;
+    esac
+else
+    echo "✓ jq is already installed."
+fi

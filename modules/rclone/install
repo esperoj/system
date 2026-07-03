@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+
+. "${LIB_DIR}/sh/os.sh"
+
+if ! command -v rclone > /dev/null 2>&1; then    
+    echo "rclone not found. Installing rclone..."
+    case "$OS" in
+        "freebsd")
+            pkg-install pkg rclone "rclone-[0-9]*"
+            ;;
+        "linux")
+            pkg-install ghbin rclone/rclone "${OS}-%arch:x86_64=amd64:aarch64=arm64%.zip$" "*/rclone"
+            ;;
+        *)
+            echo "Error: Unknown OS '$OS'" >&2
+            exit 1
+            ;;
+    esac
+else
+    echo "✓ rclone is already installed."
+fi

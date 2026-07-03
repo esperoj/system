@@ -1,0 +1,183 @@
+#!/bin/bash
+
+host="incremental"
+command="${COMMAND:-uptime}"
+
+usage() {
+  echo "Usage: ${0} -c <command> [-h <host>]"
+  echo "  -c: Specify the command to run on the host"
+  echo "  -h: Specify the host where the command will be run (default: ${host})"
+  exit 1
+}
+
+while getopts "c:h:" opt; do
+  case "${opt}" in
+  c) command="${OPTARG}" ;;
+  h) host="${OPTARG}" ;;
+  \?)
+    echo "Invalid option: -${OPTARG}" >&2
+    usage
+    ;;
+  esac
+done
+
+case "${host}" in
+
+"local")
+  ~/.local/bin/chezmoi init --apply --force
+  bash -lc "${command}"
+  ;;
+tildegit | envs)
+  case "${host}" in
+  tildegit)
+    server="https://drone.tildegit.org"
+    token="$TILDEGIT_DRONE_TOKEN"
+    ;;
+  envs)
+    server="https://drone.envs.net"
+    token="$ENVS_DRONE_TOKEN"
+    ;;
+  esac
+  request() {
+    command=$(python3 -c 'from urllib.parse import quote; print(quote("""'"$command"'"""))')
+    curl -sSX POST -H "Authorization: Bearer $token" \
+      "${server}/api/repos/esperoj/dotfiles/builds?COMMAND=$command"
+  }
+  echo "${server}/esperoj/dotfiles/$(request | jq .number)"
+  ;;
+github | blacksmith | blacksmith-arm)
+  runner=$([ "${host}" = "github" ] && echo "ubuntu-latest" || echo "${host}")
+  content=$(
+    jq -n \
+      --arg command "${command}" \
+      --arg runner "${runner}" \
+      '{
+       "ref": "main",
+       "inputs": {
+         "runner": $runner,
+         "command": $command
+       }
+     }'
+  )
+
+  request() {
+    curl -sLSo /dev/null -w "%{http_code}" \
+      -X POST \
+      -H "Accept: application/vnd.github+json" \
+      -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+      -H "X-GitHub-Api-Version: 2022-11-28" \
+      "https://api.github.com/repos/esperoj/dotfiles-private/actions/workflows/run-command.yml/dispatches" \
+      -d "${content}"
+  }
+
+  response=$(request)
+  if [ "${response}" -eq 204 ]; then
+    echo "Succeed triggered. Visit https://github.com/esperoj/dotfiles-private/actions/workflows/run-command.yml"
+  else
+    echo "Failed with status code: ${response}"
+  fi
+  ;;
+
+codeberg)
+  content=$(
+    jq -n \
+      --arg command "${command}" \
+      '{
+       "branch": "main",
+       "variables": {
+         "WORKFLOW": "run-command",
+         "COMMAND": $command
+       }
+     }'
+  )
+
+  case "${host}" in
+  codeberg)
+    server=ci.codeberg.org
+    repo_id=12554
+    token="${WOODPECKER_TOKEN}"
+    ;;
+  esac
+  result=$(curl -sSX POST "https://${server}/api/repos/${repo_id}/pipelines" \
+    -H "Authorization: Bearer ${token}" \
+    -H "Content-type: application/json" \
+    -d "${content}")
+
+  number=$(echo "${result}" | jq ".number")
+
+  echo "https://${server}/repos/${repo_id}/pipeline/${number}"
+  ;;
+
+framagit | gitlab | lain)
+  case "${host}" in
+  gitlab)
+    server="https://gitlab.com"
+    project_id=58158450
+    token="${GITLAB_DOTFILES_TRIGGER_TOKEN}"
+    ;;
+  framagit)
+    server="https://framagit.org"
+    project_id=108057
+    token="${FRAMAGIT_DOTFILES_TRIGGER_TOKEN}"
+    ;;
+  lain)
+    server="https://gitlab.lain.la"
+    project_id=207
+    token="${LAIN_DOTFILES_TRIGGER_TOKEN}"
+    ;;
+  esac
+  result=$(curl -sSX POST \
+    --fail \
+    -F token="${token}" \
+    -F "ref=main" \
+    -F "variables[WORKFLOW]=run-command" \
+    -F "variables[COMMAND]=${command}" \
+    "${server}/api/v4/projects/${project_id}/trigger/pipeline" |
+    jq .web_url)
+  bash -c "echo ${result}"
+  ;;
+
+git-gay | incremental)
+  case "${host}" in
+  git-gay)
+    runner="docker"
+    server="https://git.gay"
+    token="${GIT_GAY_ACCESS_TOKEN}"
+    ;;
+  incremental)
+    runner="docker"
+    server="https://code.incremental.social"
+    token="${INCREMENTAL_ACCESS_TOKEN}"
+    ;;
+  esac
+  content=$(
+    jq -n \
+      --arg command "${command}" \
+      --arg runner "${runner}" \
+      '{
+       "ref": "main",
+       "inputs": {
+         "runner": $runner,
+         "command": $command
+       }
+     }'
+  )
+
+  request() {
+    curl -sLSo /dev/null -w "%{http_code}" \
+      -X POST \
+      -H "Accept: application/json" \
+      -H "Content-type: application/json" \
+      -H "Authorization: bearer ${token}" \
+      "${server}/api/v1/repos/esperoj/dotfiles/actions/workflows/run-command.yml/dispatches" \
+      -d "${content}"
+  }
+
+  response=$(request)
+  if [ "${response}" -eq 204 ]; then
+    echo "Succeed triggered. Visit ${server}/esperoj/dotfiles/actions/?workflow=run-command.yml&actor=0&status=0"
+  else
+    echo "Failed with status code: ${response}"
+  fi
+  ;;
+esac

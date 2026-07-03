@@ -1,0 +1,55 @@
+when:
+  - event: [pull_request, cron, manual]
+  - event: push
+    branch:
+      - ${CI_REPO_DEFAULT_BRANCH}
+
+labels:
+  platform: linux/amd64
+
+variables:
+  - &build_plugin "codefloe.com/crow-plugins/docker-buildx"
+  
+  # FIX: Change from a sequence list (-) to a pristine Key-Value Map
+  - &build_args
+      CI_COMMIT_SHA: ${CI_COMMIT_SHA}
+      CI_COMMIT_BRANCH: ${CI_COMMIT_BRANCH}
+      CI_COMMIT_TAG: ${CI_COMMIT_TAG}
+      REGISTRY_PROXY: cr.codefloe.com/
+
+  - base_settings: &base_buildx_settings
+      platforms: "linux/amd64"
+      dockerfile: Dockerfile
+      repo: codefloe.com/${CI_REPO}
+      tag: base
+
+  - login_setting: &login_setting
+      - registry: https://codefloe.com
+        username: esperoj
+        password:
+          from_secret: codefloe_token
+
+steps:
+  "Dry-run build":
+    image: *build_plugin
+    pull: true
+    settings:
+      <<: *base_buildx_settings
+      build_args: *build_args
+      repo: test
+      dry_run: true
+    when:
+      event: pull_request
+      branch:
+        - ${CI_REPO_DEFAULT_BRANCH}
+
+  "Publish image":
+    image: *build_plugin
+    pull: true
+    settings:
+      <<: *base_buildx_settings
+      logins: *login_setting
+      build_args: *build_args
+    when:
+      event: [push, cron, manual]
+      branch: ${CI_REPO_DEFAULT_BRANCH}

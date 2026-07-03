@@ -1,0 +1,81 @@
+#!/bin/sh
+# dot - Simple dotfile module manager
+set -eu
+
+# --- Configuration ---
+STOW_BIN="${STOW_BIN:-stow}"
+TARGET="${TARGET:-$HOME}"
+MODULES_DIR="${MODULES_DIR:-.}"
+STOW_OPTS="${STOW_OPTS:--v}"
+
+# --- Helpers ---
+log() { echo ":: $*"; }
+
+die() {
+    cat <<EOF >&2
+error: $*
+
+Usage: $0 {apply|remove|ls} [modules...]
+
+Env Overrides:
+  TARGET        Destination (default: \$HOME)
+  MODULES_DIR   Source of modules (default: current dir)
+EOF
+    exit 1
+}
+
+# --- Command Implementations ---
+
+cmd_apply() {
+    [ $# -gt 0 ] || die "apply requires at least one module name."
+    
+    log "Applying [$*] to [$TARGET]"
+    
+    # Prune first to ensure clean symlinks if target was modified
+    "$STOW_BIN" -D -d "$MODULES_DIR" -t "$TARGET" "$@" 2>/dev/null || true
+    
+    # Restow
+    "$STOW_BIN" \
+	${STOW_OPTS} \
+        -d "$MODULES_DIR" \
+        -t "$TARGET" \
+        --ignore='^\.module-' \
+        --ignore='\.swp$' \
+        --ignore='\.git' \
+        "$@"
+}
+
+cmd_remove() {
+    [ $# -gt 0 ] || die "remove requires at least one module name."
+    
+    log "Removing [$*] from [$TARGET]"
+    "$STOW_BIN" ${STOW_OPTS} -D -d "$MODULES_DIR" -t "$TARGET" "$@"
+}
+
+cmd_ls() {
+    log "Available modules in [$MODULES_DIR]:"
+    # Lists directories, excludes hidden ones, and formats for scannability
+    find "$MODULES_DIR" -maxdepth 1 -type d -not -path '*/.*' -not -path "$MODULES_DIR" -printf "  %f\n" | sort
+}
+
+# --- Validation ---
+[ -d "$MODULES_DIR" ] || die "Modules directory not found: $MODULES_DIR"
+[ -d "$TARGET" ] || die "Target directory not found: $TARGET"
+
+# --- Router ---
+case "${1:-}" in
+    apply)
+        shift
+        cmd_apply "$@"
+        ;;
+    remove)
+        shift
+        cmd_remove "$@"
+        ;;
+    ls|list)
+        cmd_ls
+        ;;
+    *)
+        die "Invalid or missing command. Use apply, remove, or ls."
+        ;;
+esac

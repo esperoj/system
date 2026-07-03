@@ -1,0 +1,11 @@
+#!/bin/sh
+
+set -eu
+if command -v apt-get >/dev/null 2>&1; then
+    MGR="apt"
+elif command -v apk >/dev/null 2>&1; then
+    MGR="apk"
+else
+    echo "Unsupported system" >&2; exit 1
+fi
+install-sys-pkg $(kv get ${MGR}-pkgs)

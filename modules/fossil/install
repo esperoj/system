@@ -1,0 +1,21 @@
+#!/bin/sh
+
+. "${LIB_DIR}/sh/os.sh"
+
+if ! command -v fossil > /dev/null 2>&1; then    
+    echo "fossil not found. Installing fossil..."
+    case "$OS" in
+        "freebsd")
+            pkg-install pkg fossil "fossil-[0-9]*"
+            ;;
+        "linux")
+            pkg-install deb fossil fossil
+            ;;
+        *)
+            echo "Error: Unknown OS '$OS'" >&2
+            exit 1
+            ;;
+    esac
+else
+    echo "✓ fossil is already installed."
+fi
