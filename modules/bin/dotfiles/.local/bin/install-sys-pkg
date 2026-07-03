@@ -7,13 +7,20 @@ if [ "$#" -eq 0 ]; then
     exit 1
 fi
 
-# 2. Privilege Detection
+# 2. Privilege & OS Detection
 SUDO=""
-if [ "$(id -u)" -ne 0 ]; then
+
+# Check if we are running on Android (Termux)
+if [ -d "/data/data/com.termux" ] || command -v termux-info >/dev/null 2>&1; then
+    echo ":: Detected Android/Termux environment. Skipping sudo."
+    SUDO=""
+# If not Android, check if we are already root
+elif [ "$(id -u)" -ne 0 ]; then
+    # Not root, so we need sudo
     if command -v sudo >/dev/null 2>&1; then
         SUDO="sudo"
     else
-        echo "Warning: Not running as root and sudo is not installed. This may fail." >&2
+        echo "Warning: Not running as root and 'sudo' is not installed. This may fail." >&2
     fi
 fi
 
@@ -29,8 +36,13 @@ elif command -v apk >/dev/null 2>&1; then
     $SUDO apk update
     $SUDO apk add --no-cache "$@"
 
+elif command -v pkg >/dev/null 2>&1; then
+    echo ":: Detected Termux pkg manager. Installing packages..."
+    pkg update
+    pkg install -y "$@"
+
 else
-    echo "Error: Neither 'apt-get' nor 'apk' found on this system." >&2
+    echo "Error: No supported package manager (apt-get, apk, pkg) found." >&2
     exit 1
 fi
 

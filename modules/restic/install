@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+
+. "${LIB_DIR}/sh/os.sh"
+
+if ! command -v restic > /dev/null 2>&1; then    
+    echo "restic not found. Installing restic..."
+    case "$OS" in
+        "freebsd")
+            pkg-install pkg restic "restic-[0-9]*"
+            ;;
+        "linux")
+            pkg-install ghbin restic/restic "linux_%arch:x86_64=amd64:aarch64=arm64%.bz2$" "restic"
+            ;;
+        *)
+            echo "Error: Unknown OS '$OS'" >&2
+            exit 1
+            ;;
+    esac
+else
+    echo "✓ restic is already installed."
+fi

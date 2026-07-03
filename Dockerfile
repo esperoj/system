@@ -7,10 +7,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     findutils \
     gawk \
     gnupg \
-    iputils-ping \
+    git \
     make \
     moreutils \
-    rename \
     sed \
     sudo \
     time \

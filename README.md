@@ -3,13 +3,14 @@
 Make sure make, sh, and curl are available.
 
 ```sh
-apt-get update && apt-get install -y --no-install-recommends \
+apt-get update -y && apt upgrade -y && apt-get install -y --no-install-recommends \
     ca-certificates \
     coreutils \
     curl \
     findutils \
     gawk \
     gnupg \
+	git \
     iputils-ping \
     make \
     moreutils \
