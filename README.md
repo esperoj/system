@@ -10,11 +10,9 @@ apt-get update -y && apt upgrade -y && apt-get install -y --no-install-recommend
     findutils \
     gawk \
     gnupg \
-	git \
-    iputils-ping \
+    git \
     make \
     moreutils \
-    rename \
     sed \
     sudo \
     time \
