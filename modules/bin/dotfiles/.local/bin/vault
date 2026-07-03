@@ -5,18 +5,17 @@
 set -e
 
 # --- Configuration & State Mapping ---
-VAULT_ROOT="$HOME/.vault"
-ENCRYPTED_DB="$VAULT_ROOT/vault.fossil.age"
+# Overridable via parent environment
+: "${VAULT_ROOT:=$HOME/.vault}"
+: "${RAMFS_SESSION_DIR:=/run/user/$(id -u)/vault-session}"
+: "${AGE_IDENTITIES_FILE:=$HOME/.config/age/keys.txt}"
+: "${AGE_RECIPIENTS:=age15wngjkyhr32euwd9jaecdeq4vqms9nz6wh08erjr20nn3vmyteasfa9f6n}"
 
-# Ephemeral tmpfs session mapping
-RAMFS_SESSION_DIR="/run/user/$(id -u)/vault-session"
+# Derived State (Dependent on above overrides)
+ENCRYPTED_DB="$VAULT_ROOT/vault.fossil.age"
 DECRYPTED_DB="$RAMFS_SESSION_DIR/vault.fossil"
 CHECKOUT_DIR="$RAMFS_SESSION_DIR/checkout"
 STOW_STATE_FILE="$RAMFS_SESSION_DIR/.active_stow_modules"
-
-# Cryptography fallbacks
-: "${AGE_IDENTITIES_FILE:=$HOME/.config/age/keys.txt}"
-: "${AGE_RECIPIENTS:=age15wngjkyhr32euwd9jaecdeq4vqms9nz6wh08erjr20nn3vmyteasfa9f6n}"
 
 # --- Internal Helpers ---
 
@@ -214,4 +213,4 @@ case "$1" in
         echo "Usage: vault {init|open [mods]|apply [mods]|remove [mods]|seal|status|cd|diff}"
         exit 1
         ;;
-esac
+case)

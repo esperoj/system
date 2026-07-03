@@ -32,7 +32,7 @@ else
         case "$_HOSTNAME" in
             "core.envs.net"|"de1"|"verntil") export TMPDIR="/run/user/$(id -u)/tmp" ;;
             *)                               export TMPDIR="/tmp/$(whoami)" ;;
-        case
+        esac
         
         if [ ! -d "${TMPDIR}" ]; then
             mkdir -p "${TMPDIR}" && chmod 700 "${TMPDIR}"
