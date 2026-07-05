@@ -1,1 +1,1 @@
-stow 
+7zip stow rclone fossil restic jq age bash openssh git ca-certificates coreutils curl findutils gawk make moreutils sed sudo time wget unzip xz-utils openssh gnupg 
