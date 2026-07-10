@@ -18,7 +18,8 @@ apt-get update -y && apt upgrade -y && apt-get install -y --no-install-recommend
     time \
     wget \
     unzip \
-    xz-utils
+    xz-utils \
+    termux-services
 cd ~
 mkdir -p ~/projects/system
 cd ~/projects/system

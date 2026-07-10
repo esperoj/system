@@ -69,6 +69,7 @@ load_all_envs() {
         done
     fi
 }
+
 load_all_envs
 
 # Vault Initialization Hook
@@ -77,4 +78,5 @@ if [ -n "$VAULT_CHECKOUT_DIR" ] && [ ! -d "$VAULT_CHECKOUT_DIR" ]; then
     find "$VAULT_CHECKOUT_DIR" -type f ! -executable -exec chmod 600 {} +
 fi
 
+load_all_envs
 unset _HOSTNAME _py_path
