@@ -1,7 +1,6 @@
 #!/bin/sh
 # vault - Sovereign Module Vault Manager
 # Principles: Text-first, offline-first, minimal moving parts, hash-based identity.
-
 set -e
 
 # --- Configuration & State Mapping ---
@@ -81,10 +80,14 @@ cmd_open() {
         chmod 700 "$RAMFS_SESSION_DIR"
 
         age -d -i "$AGE_IDENTITIES_FILE" -o "$DECRYPTED_DB" "$ENCRYPTED_DB"
-
+        
         cd "$CHECKOUT_DIR" || exit 1
         fossil open "$DECRYPTED_DB" > /dev/null
         fossil settings autosync off > /dev/null
+        
+        # Snapshot the database state to detect changes during seal
+        sha256sum "$DECRYPTED_DB" > "$RAMFS_SESSION_DIR/.db_hash"
+
         echo "Vault storage decrypted and opened."
     fi
 
@@ -174,27 +177,59 @@ cmd_seal() {
         echo "Removing active stows..."
         # shellcheck disable=SC2046
         _vault_dot remove $(cat "$STOW_STATE_FILE")
-        rm "$STOW_STATE_FILE"
+        rm -f "$STOW_STATE_FILE"
     fi
 
-    # 2. Fossil cleanup
+    # 2. Fossil cleanup & Change Detection
     cd "$CHECKOUT_DIR" || exit 1
     fossil addremove --dotfiles > /dev/null
     
+    DB_CHANGED=0
     if [ -n "$(fossil changes)" ]; then
         echo "Changes detected. Committing..."
         fossil commit -m "Auto-commit on seal $(date '+%Y-%m-%d %H:%M:%S')" --allow-empty > /dev/null
+        DB_CHANGED=1
     fi
-    fossil close > /dev/null
 
-    # 3. Atomic Encrypt
-    cd "$RAMFS_SESSION_DIR" || exit 1
-    echo "Encrypting database..."
-    age -e -r "$AGE_RECIPIENTS" -o "$ENCRYPTED_DB.tmp" vault.fossil
-    mv "$ENCRYPTED_DB.tmp" "$ENCRYPTED_DB"
+    # Check database hash BEFORE closing to catch manual commits in subshells
+    if [ "$DB_CHANGED" -eq 0 ] && [ -f "$RAMFS_SESSION_DIR/.db_hash" ]; then
+        if ! sha256sum -c "$RAMFS_SESSION_DIR/.db_hash" --status 2>/dev/null; then
+            DB_CHANGED=1
+        fi
+    fi
 
-    # 4. Wipe RAM session
-    cd "$HOME"
+    # 3. Handle Atomic Encrypt only if changes occurred
+    if [ "$DB_CHANGED" -eq 1 ]; then
+        echo "Database changes detected. Encrypting database..."
+        fossil close > /dev/null
+        
+        cd "$RAMFS_SESSION_DIR" || exit 1
+        age -e -r "$AGE_RECIPIENTS" -o "$ENCRYPTED_DB.tmp" vault.fossil
+        
+        # 4. Integrity Check: Verify before overwriting persistent storage
+        echo "Verifying encrypted file integrity..."
+        if age -d -i "$AGE_IDENTITIES_FILE" -o "vault.fossil.verify" "$ENCRYPTED_DB.tmp"; then
+            if cmp -s vault.fossil vault.fossil.verify; then
+                mv "$ENCRYPTED_DB.tmp" "$ENCRYPTED_DB"
+                echo "Integrity verified. Vault successfully updated."
+            else
+                echo "CRITICAL ERROR: Encrypted file does not match decrypted database!"
+                echo "Seal aborted to prevent data loss. Session preserved in RAM."
+                rm -f "$ENCRYPTED_DB.tmp" "vault.fossil.verify"
+                exit 1
+            fi
+        else
+            echo "CRITICAL ERROR: Failed to decrypt the temporary encrypted file!"
+            echo "Seal aborted to prevent data loss. Session preserved in RAM."
+            rm -f "$ENCRYPTED_DB.tmp"
+            exit 1
+        fi
+    else
+        echo "No changes made to the database. Skipping encryption."
+    fi
+
+    # 5. Wipe RAM session
+    cd "$HOME" || exit 1
     rm -rf "$RAMFS_SESSION_DIR"
     echo "Vault sealed and session wiped."
 }
@@ -214,3 +249,4 @@ case "$1" in
         exit 1
         ;;
 esac
+
