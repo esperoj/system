@@ -72,6 +72,14 @@ load_all_envs() {
 
 load_all_envs
 
+EPHEMERAL_AGE_IDENTITIES_FILE="/run/user/$(id -u)/session-age-keys.txt"
+
+if [ -n "$AGE_IDENTITIES" ]; then
+    echo "$AGE_IDENTITIES" > "$EPHEMERAL_AGE_IDENTITIES_FILE"
+    chmod 600 "$EPHEMERAL_AGE_IDENTITIES_FILE"
+    export AGE_IDENTITIES_FILE="$EPHEMERAL_AGE_IDENTITIES_FILE"
+fi
+
 # Vault Initialization Hook
 if [ -n "$VAULT_CHECKOUT_DIR" ] && [ ! -d "$VAULT_CHECKOUT_DIR" ]; then
     vault open git ssh rclone base
