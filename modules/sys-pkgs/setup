@@ -1,6 +1,8 @@
 #!/bin/sh
 
 set -eu
+
+# 1. Identify Package Manager
 if command -v apt-get >/dev/null 2>&1; then
     MGR="apt"
 elif command -v apk >/dev/null 2>&1; then
@@ -8,4 +10,16 @@ elif command -v apk >/dev/null 2>&1; then
 else
     echo "Unsupported system" >&2; exit 1
 fi
+
+# 2. Check for root or sudo privileges
+# - User is root ($EUID is 0) OR
+# - Sudo is available and the user has valid cached credentials (-n checks non-interactively)
+if [ "$(id -u)" -ne 0 ] && ! sudo -n true 2>/dev/null; then
+    echo "Skipping package installation: insufficient privileges (not root and no sudo access)." >&2
+    exit 0
+fi
+
+# 3. Perform Installation
+# If we reached here, we are either root or have sudo
 install-sys-pkg $(kv get ${MGR}-pkgs)
+
