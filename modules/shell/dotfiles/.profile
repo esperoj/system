@@ -62,6 +62,7 @@ fi
 
 load_all_envs() {
     _env_dir="$HOME/.config/env"
+    set -a; . "$_env_dir/base.env"; set +a
     if [ -d "$_env_dir" ]; then
         for _f in "$_env_dir"/*.env; do
             [ -f "$_f" ] || continue

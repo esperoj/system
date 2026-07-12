@@ -28,7 +28,9 @@ git remote set-url origin git@github.com:esperoj/system.git
 ./configure phone
 make phone
 ```
+# Things to do after setup
 
-# issues
-
-vault open ssh and dont remember permission
+Put age keys. download vault. and
+```
+make -f ~/recipes/backup.mk resync
+```
