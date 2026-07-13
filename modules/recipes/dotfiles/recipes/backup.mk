@@ -34,7 +34,7 @@ export RESTIC_HOST  := $(MACHINE_TYPE)
 all: daily
 
 # The Daily Peace-of-Mind routine (Runs regular delta syncs)
-daily: sync-workspace sync-vault sync-backups snap .WAIT clean
+daily: sync-workspace sync-vault sync-backups .WAIT snap .WAIT clean
 
 info:
 	@echo "======================================================================"
