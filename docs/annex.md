@@ -1,222 +1,167 @@
+# Perma-Store: Sovereign Binary Vault
+
+An offline-first, text-verifiable binary payload storage repository using `git-annex`. This repository serves exclusively as the physical storage layer for the Perma project. It focuses on structural simplicity, cryptographic integrity verification, and explicit separation of concerns from the logical metadata database.
+
+---
+
+## 1. Architectural Philosophy & Separation of Concerns
+
+This system separates metadata meaning from physical byte storage:
+
+* **Logical Layer (Django Admin & SQLite):** Manages the human aspect of preservation—authors, context, relationships, notes, and file path mappings.
+* **Physical Layer (`perma-store`):** Manages the raw files on disk (`store/`), physical locations across backup media, and data integrity verification.
+
+```
++------------------------------------+       +------------------------------------+
+|            LOGICAL LAYER           |       |           PHYSICAL LAYER           |
+|            (Perma Django)          |       |           (perma-store)            |
+|                                    |       |                                    |
+| * Author, Notes, Relationships     |       | * Raw Binaries (/store/)           |
+| * Path Mapping (store/texts/...)   | <===> | * git-annex Location Tracking      |
+| * SQLite Database Engine           |       | * Cryptographic Integrity (fsck)   |
++------------------------------------+       +------------------------------------+
+
+```
+
+---
+
+## 2. Vault Layout (`master` branch)
+
+The workspace uses a single **`store/`** directory organized by primary media types mirrored after the Internet Archive taxonomy. Within these top-level divisions, assets are grouped into distinct sub-categories, with an `others/` directory inside each main media type to catch miscellaneous items. Filenames omit special characters and use underscores to optimize parsing and cross-platform compatibility.
+
+```text
+perma-store/
+├── .git/
+├── .gitattributes      # Instructs Git to annex all files under store/
+└── store/
+    ├── texts/          # Monograph materials, articles, and print media
+    │   ├── books/
+    │   │   └── Le_Guin_Ursula_The_Dispossessed/
+    │   │       ├── Le_Guin_Ursula_The_Dispossessed.epub
+    │   │       └── Le_Guin_Ursula_The_Dispossessed.pdf
+    │   └── others/
+    ├── audio/          # Music, podcasts, spoken word, and soundscapes
+    │   ├── music/
+    │   │   └── Pink_Floyd_Dark_Side_Of_The_Moon/
+    │   │       └── 01_Breathe.flac
+    │   └── others/
+    ├── images/         # Stills, photographs, artwork, and visual scans
+    │   ├── posters/
+    │   │   └── Retro_SciFi_Art_01.jpg
+    │   └── others/
+    ├── videos/         # Moving image assets, films, and animations
+    │   ├── anime/
+    │   │   └── Series_Title_Episode_01.mkv
+    │   └── others/
+    ├── software/       # Operating systems, utilities, tools, and emulated ROMs
+    │   ├── systems/
+    │   │   └── Debian_12_NetInst.iso
+    │   └── others/
+    └── data/           # Datasets, scientific files, and structural dumps
+        ├── catalog_exports/
+        │   └── backup_dump.sql
+        └── others/
+
+```
+
+### `.gitattributes` Configuration
+
+To ensure comprehensive tracking across the entire storage pool, everything residing under the `store/` prefix is systematically routed to git-annex, allowing files of any extension (including Markdown documentation or plain-text notes) to be annexed:
+
+```text
+# Force absolutely everything under the store folder into git-annex
+store/** filter=annex diff=annex merge=annex
+
+```
+
+---
+
+## 3. Initialization & Local Setup
+
+Initialize the dedicated storage pool as a pure, independent git-annex node.
+
+```bash
+# Create and enter the vault directory
+mkdir -p ~/projects/perma-store
+cd ~/projects/perma-store
+
+# Initialize Git and git-annex
+git init
+git annex init "local-vault"
+
+# Configure standard annex options
+git config annex.genmetadata false
+
+```
+
+---
+
+## 4. Ingestion & Sync Pipelines
+
+### Pipeline A: Ingesting New Local Media
+
+Use this manual process when physical files are introduced to the storage layout before registering them in Django.
+
+```bash
+# 1. Create the specific sub-category item directory if it doesn't exist
+mkdir -p store/texts/books/Quantum_Mechanics_Intro/
+
+# 2. Place the binary assets into the appropriate path
+mv ~/Downloads/Quantum_Mechanics_Intro.pdf store/texts/books/Quantum_Mechanics_Intro/
+
+# 3. Ingest the file into git-annex tracking
+git annex add store/texts/books/Quantum_Mechanics_Intro/
+
+# 4. Commit the structural pointer to Git
+git commit -m "Ingest: store/texts/books/Quantum_Mechanics_Intro/"
+
+# 5. (Next Step) Copy the relative path structure and paste it into the 
+#    Django Admin interface alongside Author and Note details.
+
+```
+
+### Pipeline B: Direct Network Ingestion (Web Archiving)
+
+Use this method to retrieve remote assets directly into the `store/` tree while simultaneously preserving the verifiable source URL.
+
+```bash
+# 1. Download and track directly into the targeted media hierarchy
+git annex addurl "https://example.com/files/mechanics.pdf" --file store/texts/books/Quantum_Mechanics_Intro/Quantum_Mechanics_Intro.pdf
+
+# 2. Commit the tracking pointer
+git commit -m "Web Ingest: store/texts/books/Quantum_Mechanics_Intro/Quantum_Mechanics_Intro.pdf"
+
+```
+
+---
+
+## 5. Maintenance, Auditing & Safeguards
+
+### Automated Integrity Checks (`fsck`)
+
+To combat silent bit rot on disk, run background validation passes routinely. The following command limits execution windows to prevent resource starvation, processes data concurrently, and checks incremental blocks over 30-day windows:
+
+```bash
+git annex fsck --incremental-schedule 30d --time-limit 30m --jobs 4
+
+```
+
+### Verifying Web Archive Backends
+
+When assets are sourced or backed up via online archives (such as the Wayback Machine), validate the remote availability of those target URLs directly:
+
+```bash
 git annex fsck --from=web --url='*://web.archive.org*' --incremental-schedule 30d --time-limit 30m --jobs 4
 
-Here is the refined, enterprise-grade `README` for your digital preservation node.
-
-This version integrates **URL-ingestion optimizations** using the verifiable backend, enforces your **strict 3-copy redundancy rule**, and incorporates industry best practices for filename sanitation, automated backup verification, and metadata reliability.
-
----
-
-# Perma-Asset: Mobile-First Digital Preservation Node
-
-A text-centric, offline-first digital asset pipeline using `git-annex` inside **Termux** on Android. This repository tracks and catalog archives across a personal workstation, Android public storage, Google Drive, and pCloud while strictly preventing duplicate storage overhead.
-
----
-
-## 1. Storage Topology & Redundancy Policy
-
-To protect data against hardware failures, data rot, or cloud service disruption, this node implements a strict **3-copy redundancy policy**:
-
-* No binary data may be purged (`dropped`) from the local working environment unless git-annex registers that the file exists in at least **3 distinct physical remotes**.
-* The system uses the `VURL` (Verifiable URL) backend by default for network downloads, locking down cryptographic file signatures immediately upon ingestion.
-
-```
-                      +---------------------------------------+
-                      |         CLOUDS (Copies 2 & 3)         |
-                      |  [gdrive_export]  &  [pcloud_export]  |
-                      +-------------------+-------------------+
-                                          ^
-                                          | (git annex export)
-                                          v
-+-----------------------+       +-------------------+       +-----------------------+
-| Local PC Workstation  |  <=>  |  Termux Internal  |  ===> | Android Public Storage|
-| (Optional Local Sync) |       | (Metadata Engine) |       |  [phone_public]       |
-+-----------------------+       +-------------------+       | (Copy 1 on Mobile)    |
-                                  [Data Dropped]            +-----------------------+
-
 ```
 
----
+### Handling Moves and Renames
 
-## 2. Canonical Directory Tree (`master` branch)
-
-Physical layouts optimize for flat, highly scannable structural paths. This maximizes parsing speed across web UIs and media player databases (VLC, KOReader). Special characters are stripped to ensure cross-platform compatibility.
-
-```
-Archive/
-├── books/
-│   ├── fiction/
-│   │   └── Le Guin, Ursula/
-│   │       └── The_Dispossessed.epub
-│   └── nonfiction/
-│       └── science/
-│           └── Quantum_Mechanics_Intro.pdf
-└── music/
-    └── Pink_Floyd/
-        └── (1973)_Dark_Side_of_the_Moon/
-            ├── 01_-_Speak_to_Me.mp3
-            └── 02_-_Breathe.mp3
-
-```
-
----
-
-## 3. Metadata & Dynamic Views Schema
-
-Instead of nested physical subdirectories, categorical sorting and state flags are decoupled into git-annex's key-value metadata engine.
-
-### Taxonomy Core
-
-| Field | Purpose | Sample Parameters |
-| --- | --- | --- |
-| `type` | Primary categorization | `books`, `music` |
-| `status` | Consumption state | `unread`, `reading`, `completed` |
-| `mood` | Contextual soundtracking | `focus`, `workout`, `ambient`, `chill` |
-| `priority` | Asset tiering | `high`, `medium`, `low` |
-
-### Setting Tags Natively
+Because Django references files by their location string, if you rearrange items inside `store/`, remember to re-index the files and update the Django catalog database:
 
 ```bash
-# Tagging a book path
-git annex metadata --set type=books --set status=unread "books/fiction/Le_Guin,_Ursula/The_Dispossessed.epub"
-
-# Batch tagging an entire directory
-git annex metadata --set type=music --set mood=focus --force "music/Pink_Floyd/(1973)_Dark_Side_of_the_Moon/"
-
-```
-
-### Pivoting to Dynamic Virtual Views
-
-Regenerate your entire folder hierarchy instantly based on tracking flags using the metadata view engine:
-
-```bash
-# Virtualize books by their current reading status
-git annex view type=books status=*
-
-# Collapse back to physical master layout
-git annex vpop
-
-```
-
----
-
-## 4. Setup & Initialization Inside Termux
-
-Execute this sequence inside Termux to initialize the repository, configure the boundaries, and lock down constraints.
-
-### Step 1: Bootstrap Toolchain
-
-```bash
-termux-setup-storage
-pkg update && pkg install git git-annex rclone
-
-```
-
-### Step 2: Initialize Repository and Hard Constraints
-
-Initialize the repository within Termux internal space to guarantee absolute compliance with POSIX filesystems.
-
-```bash
-mkdir ~/Archive
-cd ~/Archive
-git init
-git annex init "android-termux"
-
-# ENFORCE REDUNDANCY: Require 3 safe copies globally before allowing a local drop
-git annex numcopies 3
-
-# Automated metadata generation on ingestion
-git config annex.genmetadata true
-
-```
-
-### Step 3: Configure Public Android Directory Link
-
-Creates the target endpoint exposed directly to standard Android user apps.
-
-```bash
-git annex initremote phone_public type=directory directory=$HOME/storage/shared/Media encryption=none exporttree=yes
-
-```
-
-### Step 4: Configure Cloud Export Remotes
-
-Connect Google Drive and pCloud destinations using unencrypted export structures for readable cloud interfaces:
-
-```bash
-# Google Drive Endpoint
-git annex initremote gdrive_export type=external externaltype=rclone target=gdrive_config_name encryption=none exporttree=yes
-
-# pCloud Endpoint via WebDAV
-git annex initremote pcloud_export type=webdav url="https://webdav.pcloud.com/Archive" encryption=none exporttree=yes
-
-```
-
----
-
-## 5. Ingestion & Synchronization Pipelines
-
-### Pipeline A: Ingesting Local Files
-
-Use this cycle when assets are downloaded or placed directly onto the phone storage.
-
-```bash
-# 1. Place asset into physical branch tree
-mv ~/storage/shared/Download/new_album/ music/Artist/
-git annex add music/Artist/new_album/
-git commit -m "Ingest local album"
-
-# 2. Tag metadata
-git annex metadata --set type=music --set mood=ambient music/Artist/new_album/
-
-# 3. Synchronize file tracking logs
-git annex sync
-
-# 4. Push binary content out to all 3 physical target endpoints
-git annex export master --to phone_public
-git annex export master --to gdrive_export
-git annex export master --to pcloud_export
-
-# 5. Flush duplicate local tracking content to free space
-# (Safeguarded: Will abort if any of the three exports failed)
-git annex drop --from here .
-
-```
-
-### Pipeline B: Direct Network Ingestion (Web Links)
-
-Use this technique to download raw documents directly from the web into the archive structure using verifiable checksum parameters (`VURL`).
-
-```bash
-# 1. Download and track direct link using the verified download stream
-git annex addurl "https://example.com/files/mechanics.pdf" --file books/nonfiction/science/Quantum_Mechanics.pdf
-git commit -m "Ingest science book via addurl"
-
-# 2. Assign catalog tags
-git annex metadata --set type=books --set status=unread books/nonfiction/science/Quantum_Mechanics.pdf
-
-# 3. Synchronize metadata logs
-git annex sync
-
-# 4. Populate the 3 target nodes
-git annex export master --to phone_public
-git annex export master --to gdrive_export
-git annex export master --to pcloud_export
-
-# 5. Drop cache copy from Termux home directory
-git annex drop --from here .
-
-```
-
----
-
-## 6. Archival Best Practices & Safeguards
-
-* **Export Isolation:** **Never** execute `git annex export` while a virtual metadata view is active (`git annex view`). If run inside a view, git-annex will instantly recreate that temporary tag folder layout directly on your storage remotes, cluttering your target directories. Always ensure your prompt is back on `master` via `git annex vpop`.
-* **Filename Sanitization Strategy:** Standardize on replacing spaces with underscores (`_`) and removing strict characters (`:`, `*`, `?`, `"`, `<`, `>`, `|`) when organizing content manually. This ensures that files exported onto shared Android filesystems or WebDAV setups never trigger name conflicts.
-* **Trust the Numcopies Failure:** If a `git annex drop` returns an error stating that copies are insufficient, **do not override it**. Run `git annex system` checks to find out which remote failed to sync, or run `git annex list` to verify exactly where your files successfully landed.
-* **Data Integrity Auditing:** At least once a season, trigger background checksum verification routines directly against your cloud export spaces from Termux to discover and correct silent data corruption or file drops:
-```bash
-git annex checkPresent gdrive_export
-git annex checkPresent pcloud_export
+# Update the local git tracking tree after moving a file or directory
+git annex add store/new_media_type/sub_category/item_directory/
+git commit -m "Relocate: updated media tree layout"
 
 ```
