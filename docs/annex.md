@@ -1,3 +1,5 @@
+git annex fsck --from=web --url='*://web.archive.org*' --incremental-schedule 30d --time-limit 30m --jobs 4
+
 Here is the refined, enterprise-grade `README` for your digital preservation node.
 
 This version integrates **URL-ingestion optimizations** using the verifiable backend, enforces your **strict 3-copy redundancy rule**, and incorporates industry best practices for filename sanitation, automated backup verification, and metadata reliability.
