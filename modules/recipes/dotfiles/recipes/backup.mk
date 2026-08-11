@@ -53,6 +53,7 @@ define do_bisync
 		--resilient \
 		--recover \
 		--conflict-resolve newer \
+		--modify-window 2s \
 		--fast-list
 endef
 
