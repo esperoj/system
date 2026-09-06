@@ -34,3 +34,11 @@ Put age keys. download vault. and
 ```
 make -f ~/recipes/backup.mk resync
 ```
+
+# hdparm
+```
+sudo nano /etc/hdparm.conf
+dev/sda {
+    spindown_time = 12
+}
+```
