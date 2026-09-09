@@ -1,5 +1,5 @@
 .PHONY: desktop
-DESKTOP_DEPS = stow base dev keepassxc firefox emacs crontab wireproxy
+DESKTOP_DEPS = stow base dev anki keepassxc firefox emacs crontab wireproxy
 desktop: sys-pkgs $(DESKTOP_DEPS)
 	MODULES_DIR="$(MODULES_DIR)/desktop" dot apply dotfiles
 desktop-cfg: sys-pkgs-cfg .WAIT $(addsuffix -cfg,$(DESKTOP_DEPS))
