@@ -1,3 +1,7 @@
+(add-to-list 'load-path
+   "/home/esperoj/.opam/default/share/emacs/site-lisp")
+     (require 'ocp-indent)
+
 ;;; init.el --- Sovereign, Portable IDE for Perma Projects -*- lexical-binding: t; -*-
 
 ;;; Commentary:
