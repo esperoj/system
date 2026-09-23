@@ -4,72 +4,9 @@ A 100% offline-first, low-dependency Emacs environment for Emacs 29+ on Debian-b
 
 ---
 
-## 1. System Setup & Dependencies
+## Practical Magit Workflows
 
-Install base tools, language servers, and compiler toolchains before running Emacs.
-
-### A. Base System & Build Tools
-
-```bash
-sudo apt update
-sudo apt install -y \
-  build-essential \
-  git \
-  pandoc \
-  ripgrep \
-  fd-find \
-  curl \
-  emacs \
-  elpa-magit \
-  elpa-markdown-mode \
-  elpa-tuareg
-
-```
-
-### B. OCaml Toolchain (`opam` + `ocaml-lsp-server`)
-
-Neither `tuareg` nor `ocp-indent` are pulled automatically by `ocaml-lsp-server`. Install `elpa-tuareg` via system packages, and explicitly install `ocaml-lsp-server`, `ocp-indent`, and `ocamlformat` (for LSP-driven code formatting) via OPAM. Standalone Emacs `merlin` packages are obsolete and unnecessary.
-
-```bash
-sudo apt install -y opam
-opam init --auto-setup -y
-eval $(opam env)
-opam install -y ocaml-lsp-server ocp-indent ocamlformat dune
-
-```
-
-### C. Python Environment
-
-```bash
-sudo apt install -y python3 python3-venv python3-pip python3-full
-pip install --user pyright
-
-```
-
-### D. Bash & JSON Tooling
-
-```bash
-sudo apt install -y shellcheck jq nodejs npm
-sudo npm install -g bash-language-server vscode-langservers-extracted
-
-```
-
-### E. Binary Verification
-
-Run this check to confirm all required executables exist on `$PATH`:
-
-```bash
-for cmd in git gcc pandoc opam ocamllsp ocp-indent ocamlformat dune python3 pyright shellcheck bash-language-server vscode-json-language-server; do
-  printf "%-30s %s\n" "$cmd:" "$(command -v $cmd || echo 'MISSING')"
-done
-
-```
-
----
-
-## 2. Practical Magit Workflows
-
-Operate on a single `main` branch across all machines without pull requests, feature branches, or web forges. Open Magit at any time with `C-x g`.
+Operate on a single `main` branch across all machines without pull requests, feature branches. Open Magit at any time with `C-x g`.
 
 ### Happy Path: Daily Linear Sync Cycle
 
