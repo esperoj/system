@@ -20,18 +20,7 @@ alias copy='xclip -selection clipboard 2>/dev/null || xsel -b -i'
 [ -f /usr/share/doc/fzf/examples/key-bindings.bash ] && . /usr/share/doc/fzf/examples/key-bindings.bash
 
 # 5. Short, High-Contrast PS1
-# Logic: Success=Green, Fail=Red | Identity=Cyan | Path=Yellow
-# Cyan and Yellow are much easier to read on black than Dark Blue.
 PS1='$(if [ $? -eq 0 ]; then echo "\[\e[32m\]✔"; else echo "\[\e[31m\]✘"; fi) \[\e[36m\]\u\[\e[0m\]:\[\e[33m\]\w\[\e[0m\]\$ '
 
 # 6. Source local profile
 [ -f "$HOME/.profile" ] && . "$HOME/.profile"
-
-
-# BEGIN opam configuration
-# This is useful if you're using opam as it adds:
-#   - the correct directories to the PATH
-#   - auto-completion for the opam binary
-# This section can be safely removed at any time if needed.
-test -r '/home/esperoj/.opam/opam-init/init.sh' && . '/home/esperoj/.opam/opam-init/init.sh' > /dev/null 2> /dev/null || true
-# END opam configuration

@@ -16,6 +16,14 @@ case ":$LD_LIBRARY_PATH:" in
     *) export LD_LIBRARY_PATH="$HOME/.local/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ;;
 esac
 
+# OPAM & Dune integration for non-interactive/automation scripts
+if [ -d "$HOME/.opam/default/bin" ]; then
+    case ":$PATH:" in
+        *":$HOME/.opam/default/bin:"*) ;;
+        *) export PATH="$HOME/.opam/default/bin:$PATH" ;;
+    esac
+fi
+
 # --- 4. HOST & PLATFORM CONFIGURATION ---
 _HOSTNAME=$(hostname)
 
