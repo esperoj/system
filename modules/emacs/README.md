@@ -82,7 +82,7 @@ Operate on a single `main` branch across all machines without pull requests, fea
 
 ---
 
-## 3. Language & Tooling Workflows
+## Language & Tooling Workflows
 
 ### OCaml (`tuareg-mode` + `ocamllsp`)
 
@@ -108,7 +108,7 @@ Operate on a single `main` branch across all machines without pull requests, fea
 
 ---
 
-## 4. Navigation & Project Management
+## Navigation & Project Management
 
 ### Projects (`project.el`)
 
