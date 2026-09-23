@@ -4,7 +4,7 @@
 ;; Philosophy: Built-ins first. Minimal external dependencies. Emacs 29+.
 ;; Storage: Strict XDG compliance. Code in config, generated state elsewhere.
 ;; Ergonomics: Frictionless daily editing and coding using modern Emacs features.
-;; Workflows: OCaml (ocamllsp), Python (pyright), Bash, JSON, Markdown, and Git (Magit).
+;; Workflows: OCaml (ocamllsp), Python (pyright), Bash, JSON, YAML, TOML, Markdown, and Git (Magit).
 
 ;;; Code:
 
@@ -89,8 +89,8 @@
 (package-initialize)
 
 (defun my/ensure-packages (pkgs)
-  "Ensure PKGS are installed.
-Works whether provided by system (apt/elpa packages) or MELPA downloads."
+  "Ensure PKGS are available.
+Checks both ELPA package list and system-provided packages (apt)."
   (let ((to-install nil))
     (dolist (pkg pkgs)
       (unless (or (package-installed-p pkg)
@@ -103,7 +103,7 @@ Works whether provided by system (apt/elpa packages) or MELPA downloads."
         (package-install pkg)))))
 
 ;; Ensure external packages exist (installed via apt or downloaded via ELPA)
-(my/ensure-packages '(magit markdown-mode tuareg treesit-auto))
+(my/ensure-packages '(magit markdown-mode tuareg yaml-mode treesit-auto))
 
 ;; ===========================================================================
 ;; 4. COMPLETION & MINIBUFFER (ICOMPLETE + FLEX)
@@ -171,10 +171,8 @@ Works whether provided by system (apt/elpa packages) or MELPA downloads."
   (or (executable-find "cc") (executable-find "gcc") (executable-find "clang")))
 
 (when (and (fboundp 'treesit-available-p) (treesit-available-p))
-  ;; Use treesit-auto if installed; otherwise fall back to manual recipe installation
   (if (require 'treesit-auto nil 'noerror)
-      (progn
-        (global-treesit-auto-mode 1))
+      (global-treesit-auto-mode 1)
     (progn
       (setq treesit-language-source-alist my/treesit-languages)
       (if (my/has-c-compiler-p)
@@ -202,27 +200,28 @@ Works whether provided by system (apt/elpa packages) or MELPA downloads."
             (add-to-list 'major-mode-remap-alist
                          (cons fallback-mode (intern (format "%s-ts-mode" lang))))))))))
 
-;; File extensions
-(add-to-list 'auto-mode-alist '("\\.md\\'" . gfm-mode))
-(add-to-list 'auto-mode-alist '("\\.ml[iip]?\\'" . tuareg-mode))
+;; Explicit non-TS mode associations
+(add-to-list 'auto-mode-alist '("\\.yaml\\|\\.yml\\'" . yaml-mode))
+(add-to-list 'auto-mode-alist '("\\.toml\\'" . conf-toml-mode))
 
 ;; ===========================================================================
-;; 8. LANGUAGE WORKFLOWS (OCAML, PYTHON, BASH, JSON, MARKDOWN)
+;; 8. LANGUAGE WORKFLOWS (OCAML, PYTHON, BASH, JSON, YAML, MARKDOWN)
 ;; ===========================================================================
 (require 'eglot)
 (add-to-list 'warning-suppress-types '(eglot))
 
 ;; --- OCAML WORKFLOW ---
+(require 'tuareg nil 'noerror)
+(add-to-list 'auto-mode-alist '("\\.ml[iip]?\\'" . tuareg-mode))
+
 (defun my/setup-opam-env ()
   "Dynamically import OPAM binary paths and site-lisp into Emacs environment."
   (when-let* ((opam-bin (executable-find "opam"))
               (bin-dir (ignore-errors (car (process-lines opam-bin "var" "bin"))))
               (share-dir (ignore-errors (car (process-lines opam-bin "var" "share")))))
-    ;; Add OPAM bin directory to exec-path and PATH for ocamllsp discovery
     (when (file-directory-p bin-dir)
       (add-to-list 'exec-path bin-dir)
       (setenv "PATH" (concat bin-dir path-separator (getenv "PATH"))))
-    ;; Load ocp-indent elisp from active OPAM switch
     (when (file-directory-p share-dir)
       (let ((opam-lisp (expand-file-name "emacs/site-lisp" share-dir)))
         (when (file-directory-p opam-lisp)
@@ -231,7 +230,6 @@ Works whether provided by system (apt/elpa packages) or MELPA downloads."
 
 (my/setup-opam-env)
 
-;; Enable ocamllsp in Eglot for OCaml
 (with-eval-after-load 'eglot
   (add-to-list 'eglot-server-programs
                '((tuareg-mode ocaml-ts-mode caml-mode) . ("ocamllsp"))))
@@ -256,19 +254,22 @@ Works whether provided by system (apt/elpa packages) or MELPA downloads."
 (add-hook 'python-base-mode-hook #'eglot-ensure)
 (add-hook 'python-base-mode-hook #'my/python-activate-venv)
 
-;; --- BASH & JSON WORKFLOWS ---
+;; --- BASH, JSON, YAML WORKFLOWS ---
 (setq js-indent-level 2)
 (dolist (hook '(bash-ts-mode-hook sh-mode-hook
-                json-ts-mode-hook js-json-mode-hook))
+                json-ts-mode-hook js-json-mode-hook
+                yaml-ts-mode-hook yaml-mode-hook))
   (add-hook hook #'eglot-ensure))
 
 ;; --- MARKDOWN WORKFLOW ---
-(with-eval-after-load 'markdown-mode
-  (setq markdown-command "pandoc -f markdown -t html --standalone")
-  (setq markdown-header-scaling t))
+;; Unconditionally associate Markdown file extensions.
+;; Emacs will trigger package autoloads dynamically when the file is opened.
+(setq markdown-command "pandoc -f markdown -t html --standalone"
+      markdown-header-scaling t)
 
+(add-to-list 'auto-mode-alist '("\\.\\(?:md\\Vert{}markdown\\)\\'" . markdown-mode))
+(add-to-list 'auto-mode-alist '("README\\.md\\'" . gfm-mode))
 (add-hook 'markdown-mode-hook #'visual-line-mode)
-(add-hook 'markdown-mode-hook #'flymake-mode)
 
 ;; ===========================================================================
 ;; 9. VISUALS & TYPOGRAPHY
@@ -289,6 +290,10 @@ Works whether provided by system (apt/elpa packages) or MELPA downloads."
 (keymap-global-set "M-o"     #'other-window)       ;; Fast window switching
 (keymap-global-set "C-c p p" #'project-switch-project)
 (keymap-global-set "C-c p f" #'project-find-file)
+
+;; --- CODE OUTLINE (Like Zed/VSCode) ---
+;; `imenu` reads the current Tree-sitter or Eglot (LSP) tree and builds a searchable TOC.
+(keymap-global-set "C-c o"   #'imenu)
 
 (provide 'init)
 ;;; init.el ends here
