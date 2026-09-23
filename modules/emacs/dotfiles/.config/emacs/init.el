@@ -1,14 +1,10 @@
-(add-to-list 'load-path
-   "/home/esperoj/.opam/default/share/emacs/site-lisp")
-     (require 'ocp-indent)
-
 ;;; init.el --- Sovereign, Portable IDE for Perma Projects -*- lexical-binding: t; -*-
 
 ;;; Commentary:
-;; Philosophy: Built-ins first.  Minimal external dependencies.  Emacs 29+.
-;; Storage: Strict XDG compliance.  Code in config, generated files elsewhere.
+;; Philosophy: Built-ins first. Minimal external dependencies. Emacs 29+.
+;; Storage: Strict XDG compliance. Code in config, generated state elsewhere.
 ;; Ergonomics: Frictionless daily editing and coding using modern Emacs features.
-;; Architecture: Organized by domain for easy understanding and future updates.
+;; Workflows: OCaml (ocamllsp), Python (pyright), Bash, JSON, Markdown, and Git (Magit).
 
 ;;; Code:
 
@@ -20,6 +16,7 @@
 (defvar icomplete-show-matches-on-no-input)
 (defvar icomplete-hide-common-prefix)
 (defvar savehist-file)
+(defvar markdown-command)
 
 ;; ===========================================================================
 ;; 0. XDG & ENVIRONMENT (NO LITTERING)
@@ -32,7 +29,7 @@
 (defconst my/cache-dir (expand-file-name "emacs/" xdg-cache-home))
 (defconst my/data-dir  (expand-file-name "emacs/" xdg-data-home))
 
-;; Create all necessary directories in one pass
+;; Create all necessary state directories in one pass
 (dolist (dir (list my/state-dir my/cache-dir my/data-dir
                    (expand-file-name "backups" my/state-dir)
                    (expand-file-name "auto-save" my/state-dir)))
@@ -62,7 +59,7 @@
       inhibit-startup-message t
       initial-scratch-message nil
       use-dialog-box nil
-      ring-bell-function 'ignore) ;; Silent bell for less distraction
+      ring-bell-function 'ignore)
 
 (add-hook 'emacs-startup-hook (lambda () (setq gc-cons-threshold 800000)))
 
@@ -73,32 +70,40 @@
 ;; ===========================================================================
 ;; 2. MODERN ERGONOMICS (BUILT-IN QOL)
 ;; ===========================================================================
-;; These built-in minor modes drastically improve daily editing friction.
-(pixel-scroll-precision-mode 1) ;; Smooth, precise scrolling (Emacs 29+)
+(pixel-scroll-precision-mode 1) ;; Smooth scrolling (Emacs 29+)
 (global-auto-revert-mode 1)     ;; Auto-reload files changed on disk
 (save-place-mode 1)             ;; Remember cursor position in files
-(savehist-mode 1)               ;; Persist minibuffer history (M-p / M-n)
+(savehist-mode 1)               ;; Persist minibuffer history
 (winner-mode 1)                 ;; Undo/redo window layouts (C-c <left>/<right>)
 (electric-pair-mode 1)          ;; Auto-close brackets and quotes
 (delete-selection-mode 1)       ;; Type over selected text
 (repeat-mode 1)                 ;; Repeat commands without modifier keys
-(setq-default indent-tabs-mode nil) ;; Spaces > Tabs for consistency
+(setq-default indent-tabs-mode nil) ;; Spaces over tabs
 
 ;; ===========================================================================
-;; 3. EXTERNAL PACKAGES (MINIMAL)
+;; 3. PACKAGE MANAGEMENT (APT + ELPA DUAL SUPPORT)
 ;; ===========================================================================
 (require 'package)
 (setq package-archives '(("melpa" . "https://melpa.org/packages/")
                          ("gnu"   . "https://elpa.gnu.org/packages/")))
 (package-initialize)
 
-(let ((pkgs '(vc-fossil markdown-mode)))
-  (unless (seq-every-p #'package-installed-p pkgs)
-    (package-refresh-contents)
-    (mapc #'package-install pkgs)))
+(defun my/ensure-packages (pkgs)
+  "Ensure PKGS are installed.
+Works whether provided by system (apt/elpa packages) or MELPA downloads."
+  (let ((to-install nil))
+    (dolist (pkg pkgs)
+      (unless (or (package-installed-p pkg)
+                  (require pkg nil 'noerror))
+        (push pkg to-install)))
+    (when to-install
+      (unless package-archive-contents
+        (package-refresh-contents))
+      (dolist (pkg to-install)
+        (package-install pkg)))))
 
-(with-eval-after-load 'vc
-  (add-to-list 'vc-handled-backends 'Fossil))
+;; Ensure external packages exist (installed via apt or downloaded via ELPA)
+(my/ensure-packages '(magit markdown-mode tuareg treesit-auto))
 
 ;; ===========================================================================
 ;; 4. COMPLETION & MINIBUFFER (ICOMPLETE + FLEX)
@@ -107,12 +112,10 @@
 (setq icomplete-show-matches-on-no-input t
       icomplete-hide-common-prefix nil)
 
-;; Smart fuzzy/substring matching
 (setq completion-styles '(substring flex partial-completion basic)
       completion-category-defaults nil
       completion-category-overrides '((file (styles partial-completion substring flex basic))))
 
-;; In-buffer code completion settings
 (setq completions-detailed t
       completions-format 'one-column
       completions-max-height 15
@@ -120,11 +123,10 @@
       tab-always-indent 'complete
       completion-auto-select 'second-tab)
 
-;; Ensure pressing SPACE in the minibuffer actually inserts a space
 (keymap-set minibuffer-local-completion-map "SPC" #'self-insert-command)
 
 ;; ===========================================================================
-;; 5. RECENT FILES & HISTORY
+;; 5. RECENT FILES & PROJECT MANAGEMENT
 ;; ===========================================================================
 (require 'recentf)
 (setq recentf-save-file (expand-file-name "recentf" my/state-dir)
@@ -134,78 +136,111 @@
 (setq savehist-file (expand-file-name "history" my/state-dir))
 (savehist-mode 1)
 
-;; ===========================================================================
-;; 6. PROJECT MANAGEMENT (FOSSIL INTEGRATION)
-;; ===========================================================================
 (require 'project)
-(setq project-list-file (expand-file-name "projects" my/state-dir)
-      project-vc-extra-root-markers '(".fslckout" "_FOSSIL_"))
+(setq project-list-file (expand-file-name "projects" my/state-dir))
 
-(defun my/project-ignores-fossil (orig-fn project dir)
-  "Call ORIG-FN to get standard ignore patterns.
-Then append Fossil's ignore globs for PROJECT in DIR."
-  (let* ((ignores (funcall orig-fn project dir))
-         (root (project-root project))
-         (fossil-ignore (expand-file-name ".fossil-settings/ignore-glob" root)))
-    (if (file-exists-p fossil-ignore)
-        (with-temp-buffer
-          (insert-file-contents fossil-ignore)
-          (append ignores (split-string (buffer-string) "[\n\r,]+" t "[ \t]+")))
-      ignores)))
+;; ===========================================================================
+;; 6. VERSION CONTROL (GIT & MAGIT)
+;; ===========================================================================
+(with-eval-after-load 'magit
+  (setq magit-display-buffer-function #'magit-display-buffer-same-window-except-diff-v1))
 
-(advice-add 'project-ignores :around #'my/project-ignores-fossil)
+;; Enable smerge-mode hook for inline conflict resolution
+(add-hook 'find-file-hook
+          (lambda ()
+            (when (and buffer-file-name
+                       (save-excursion
+                         (goto-char (point-min))
+                         (re-search-forward "^<<<<<<< " nil t)))
+              (smerge-mode 1))))
 
 ;; ===========================================================================
 ;; 7. TREE-SITTER & FILE ASSOCIATIONS
 ;; ===========================================================================
+;; Manual fallback recipes for tree-sitter grammars
 (defconst my/treesit-languages
-  '((bash "https://github.com/tree-sitter/tree-sitter-bash")
+  '((bash "https://github.com/tree-sitter/tree-sitter-bash" "v0.20.0")
     (python "https://github.com/tree-sitter/tree-sitter-python" "v0.20.4")
-    (json "https://github.com/tree-sitter/tree-sitter-json")
+    (json "https://github.com/tree-sitter/tree-sitter-json" "v0.20.2")
+    (ocaml "https://github.com/tree-sitter/tree-sitter-ocaml" "master" "grammars/ocaml")
     (yaml "https://github.com/ikatyang/tree-sitter-yaml")
-    (toml "https://github.com/tree-sitter/tree-sitter-toml")))
+    (toml "https://github.com/tree-sitter/tree-sitter-toml" "v0.20.0")))
 
 (defun my/has-c-compiler-p ()
   "Return non-nil if a C compiler is available for tree-sitter."
   (or (executable-find "cc") (executable-find "gcc") (executable-find "clang")))
 
-;; Auto-install missing tree-sitter grammars silently on startup
 (when (and (fboundp 'treesit-available-p) (treesit-available-p))
-  (setq treesit-language-source-alist my/treesit-languages)
-  (if (my/has-c-compiler-p)
-      (dolist (lang my/treesit-languages)
-        (unless (treesit-language-available-p (car lang))
-          (condition-case err
-              (treesit-install-language-grammar (car lang))
-            (error (message "Tree-sitter compile error for %s: %s"
-                            (car lang) (error-message-string err))))))
-    (message "No C compiler found. Skipping Tree-sitter auto-compilation.")))
+  ;; Use treesit-auto if installed; otherwise fall back to manual recipe installation
+  (if (require 'treesit-auto nil 'noerror)
+      (progn
+        (global-treesit-auto-mode 1))
+    (progn
+      (setq treesit-language-source-alist my/treesit-languages)
+      (if (my/has-c-compiler-p)
+          (dolist (lang my/treesit-languages)
+            (unless (treesit-language-available-p (car lang))
+              (condition-case err
+                  (treesit-install-language-grammar (car lang))
+                (error (message "Tree-sitter compile error for %s: %s"
+                                (car lang) (error-message-string err))))))
+        (message "No C compiler found. Skipping Tree-sitter auto-compilation."))
+      
+      ;; Manual mode mappings fallback
+      (defconst my/ts-mode-mappings
+        '((bash . sh-mode)
+          (python . python-mode)
+          (json . js-json-mode)
+          (ocaml . tuareg-mode)
+          (yaml . yaml-mode)
+          (toml . conf-toml-mode)))
 
-;; Map standard modes to their Tree-sitter counterparts if available.
-;; Emacs 29+ uses `major-mode-remap-alist` to cleanly intercept and upgrade modes.
-(defconst my/ts-mode-mappings
-  '((bash . sh-mode)
-    (python . python-mode)
-    (json . js-json-mode)
-    (yaml . yaml-mode)
-    (toml . conf-toml-mode)))
+      (dolist (mapping my/ts-mode-mappings)
+        (let ((lang (car mapping))
+              (fallback-mode (cdr mapping)))
+          (when (treesit-language-available-p lang)
+            (add-to-list 'major-mode-remap-alist
+                         (cons fallback-mode (intern (format "%s-ts-mode" lang))))))))))
 
-(dolist (mapping my/ts-mode-mappings)
-  (let ((lang (car mapping))
-        (fallback-mode (cdr mapping)))
-    (when (treesit-language-available-p lang)
-      (add-to-list 'major-mode-remap-alist
-                   (cons fallback-mode (intern (format "%s-ts-mode" lang)))))))
-
-;; Markdown fallback
-(add-to-list 'auto-mode-alist '("\\.md\\'" . markdown-mode))
+;; File extensions
+(add-to-list 'auto-mode-alist '("\\.md\\'" . gfm-mode))
+(add-to-list 'auto-mode-alist '("\\.ml[iip]?\\'" . tuareg-mode))
 
 ;; ===========================================================================
-;; 8. DEVELOPMENT (EGLOT, FLYMAKE, & VENV)
+;; 8. LANGUAGE WORKFLOWS (OCAML, PYTHON, BASH, JSON, MARKDOWN)
 ;; ===========================================================================
 (require 'eglot)
-(add-to-list 'warning-suppress-types '(eglot)) ;; Suppress LSP noise
+(add-to-list 'warning-suppress-types '(eglot))
 
+;; --- OCAML WORKFLOW ---
+(defun my/setup-opam-env ()
+  "Dynamically import OPAM binary paths and site-lisp into Emacs environment."
+  (when-let* ((opam-bin (executable-find "opam"))
+              (bin-dir (ignore-errors (car (process-lines opam-bin "var" "bin"))))
+              (share-dir (ignore-errors (car (process-lines opam-bin "var" "share")))))
+    ;; Add OPAM bin directory to exec-path and PATH for ocamllsp discovery
+    (when (file-directory-p bin-dir)
+      (add-to-list 'exec-path bin-dir)
+      (setenv "PATH" (concat bin-dir path-separator (getenv "PATH"))))
+    ;; Load ocp-indent elisp from active OPAM switch
+    (when (file-directory-p share-dir)
+      (let ((opam-lisp (expand-file-name "emacs/site-lisp" share-dir)))
+        (when (file-directory-p opam-lisp)
+          (add-to-list 'load-path opam-lisp)
+          (require 'ocp-indent nil t))))))
+
+(my/setup-opam-env)
+
+;; Enable ocamllsp in Eglot for OCaml
+(with-eval-after-load 'eglot
+  (add-to-list 'eglot-server-programs
+               '((tuareg-mode ocaml-ts-mode caml-mode) . ("ocamllsp"))))
+
+(add-hook 'tuareg-mode-hook #'eglot-ensure)
+(when (fboundp 'ocaml-ts-mode)
+  (add-hook 'ocaml-ts-mode-hook #'eglot-ensure))
+
+;; --- PYTHON WORKFLOW ---
 (defun my/python-activate-venv ()
   "Locate and activate a venv or .venv in the current project root."
   (let ((root (if-let ((proj (project-current))) (project-root proj) default-directory)))
@@ -215,38 +250,43 @@ Then append Fossil's ignore globs for PROJECT in DIR."
       (when (file-executable-p python-bin)
         (setenv "VIRTUAL_ENV" venv-dir)
         (setq-local exec-path (cons bin-dir exec-path))
-        ;; path-separator ensures this works on Windows (;) and Unix (:)
         (setenv "PATH" (concat bin-dir path-separator (getenv "PATH")))
         (message "Activated venv: %s" venv-dir)))))
 
-;; Attach Eglot and Venv activation to python-base-mode (covers ts and non-ts)
 (add-hook 'python-base-mode-hook #'eglot-ensure)
 (add-hook 'python-base-mode-hook #'my/python-activate-venv)
 
-;; Standard Eglot/Flymake hooks for other modes
-(dolist (hook '(bash-ts-mode-hook yaml-ts-mode-hook json-ts-mode-hook
-                sh-mode-hook yaml-mode-hook js-json-mode-hook))
+;; --- BASH & JSON WORKFLOWS ---
+(setq js-indent-level 2)
+(dolist (hook '(bash-ts-mode-hook sh-mode-hook
+                json-ts-mode-hook js-json-mode-hook))
   (add-hook hook #'eglot-ensure))
 
-(dolist (hook '(emacs-lisp-mode-hook markdown-mode-hook toml-ts-mode-hook conf-toml-mode-hook))
-  (add-hook hook #'flymake-mode))
+;; --- MARKDOWN WORKFLOW ---
+(with-eval-after-load 'markdown-mode
+  (setq markdown-command "pandoc -f markdown -t html --standalone")
+  (setq markdown-header-scaling t))
+
+(add-hook 'markdown-mode-hook #'visual-line-mode)
+(add-hook 'markdown-mode-hook #'flymake-mode)
 
 ;; ===========================================================================
 ;; 9. VISUALS & TYPOGRAPHY
 ;; ===========================================================================
 (load-theme 'modus-vivendi t)
-(set-face-attribute 'default nil :font "Monospace" :height 150)
-(setq-default line-spacing 0.2)
+(set-face-attribute 'default nil :font "Monospace" :height 140)
+(setq-default line-spacing 0.15)
 
 (column-number-mode 1)
 (global-display-line-numbers-mode 1)
 
 ;; ===========================================================================
-;; 10. ERGONOMIC KEYBINDINGS & NAVIGATION
+;; 10. KEYBINDINGS & NAVIGATION
 ;; ===========================================================================
-(keymap-global-set "C-c r" #'recentf-open-files) ;; Fuzzy find recent files natively
-(keymap-global-set "C-x C-b" #'ibuffer)          ;; Modern buffer management
-(keymap-global-set "M-o" #'other-window)         ;; Fast window switching
+(keymap-global-set "C-x g"   #'magit-status)       ;; Canonical Git status dashboard
+(keymap-global-set "C-c r"   #'recentf-open-files) ;; Fast recent file switcher
+(keymap-global-set "C-x C-b" #'ibuffer)            ;; Modern buffer list
+(keymap-global-set "M-o"     #'other-window)       ;; Fast window switching
 (keymap-global-set "C-c p p" #'project-switch-project)
 (keymap-global-set "C-c p f" #'project-find-file)
 
