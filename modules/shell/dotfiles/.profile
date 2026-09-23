@@ -20,7 +20,7 @@ esac
 if [ -d "$HOME/.opam/default/bin" ]; then
     case ":$PATH:" in
         *":$HOME/.opam/default/bin:"*) ;;
-        *) export PATH="$HOME/.opam/default/bin:$PATH" ;;
+        *) eval $(opam env) ;;
     esac
 fi
 
