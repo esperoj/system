@@ -97,3 +97,4 @@ fi
 
 load_all_envs
 unset _HOSTNAME _py_path
+. "$HOME/.cargo/env"
