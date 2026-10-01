@@ -1,79 +1,61 @@
 # --- 1. THE GUARD (Source Only Once) ---
-if [ -n "$_PROFILE_SOURCED" ]; then
+if [ -n "${_PROFILE_SOURCED:-}" ]; then
     return 0
 fi
 export _PROFILE_SOURCED=1
 
-echo "Running ${HOME}/.profile"
+# --- 2. PATH & LIBRARY CONFIGURATION ---
+case ":$PATH:" in
+    *":$HOME/.local/bin:"*) ;;
+    *) export PATH="$HOME/.local/bin:$PATH" ;;
+esac
 
-# --- 2. BASE ENVIRONMENT ---
-export MACHINE_TYPE=""
-export EDITOR="emacs"
-
-# --- 3. PATH & LIBRARY HELPERS ---
-case ":$LD_LIBRARY_PATH:" in
+case ":${LD_LIBRARY_PATH:-}:" in
     *":$HOME/.local/lib:"*) ;;
     *) export LD_LIBRARY_PATH="$HOME/.local/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ;;
 esac
 
-# OPAM & Dune integration for non-interactive/automation scripts
-if [ -d "$HOME/.opam/default/bin" ]; then
-    case ":$PATH:" in
-        *":$HOME/.opam/default/bin:"*) ;;
-        *) eval $(opam env) ;;
-    esac
-fi
+# --- 3. PLATFORM-SPECIFIC SETTINGS ---
+_HOSTNAME=$(hostname 2>/dev/null || uname -n)
 
-# --- 4. HOST & PLATFORM CONFIGURATION ---
-_HOSTNAME=$(hostname)
-
-# Unified Ephemeral & Session Directory Mapping
-if [ -n "$TERMUX_VERSION" ]; then
-    # Android Termux Environment
+if [ -n "${TERMUX_VERSION:-}" ]; then
     export TMPDIR="${TMPDIR:-/data/data/com.termux/files/usr/tmp}"
-    export RAMFS_SESSION_DIR="$TMPDIR/vault-session"
-else
-    # Standard Linux Setup
-    export RAMFS_SESSION_DIR="/run/user/$(id -u)/vault-session"
+elif [ "$MACHINE_TYPE" = "pubnix" ]; then
+    case "$_HOSTNAME" in
+        "core.envs.net"|"de1"|"verntil") export TMPDIR="/run/user/$(id -u)/tmp" ;;
+        *)                               export TMPDIR="/tmp/$(whoami)" ;;
+    esac
 
-    if [ "$MACHINE_TYPE" = "pubnix" ]; then
-        case "$_HOSTNAME" in
-            "core.envs.net"|"de1"|"verntil") export TMPDIR="/run/user/$(id -u)/tmp" ;;
-            *)                               export TMPDIR="/tmp/$(whoami)" ;;
-        esac
-        
-        if [ ! -d "${TMPDIR}" ]; then
-            mkdir -p "${TMPDIR}" && chmod 700 "${TMPDIR}"
-            for dir in .cache .cargo .npm tmp; do
-                mkdir -p "${TMPDIR}/$dir"
-                rm -rf "${HOME}/$dir"
-                ln -s "${TMPDIR}/$dir" "${HOME}/$dir"
-            done
-        fi
+    if [ ! -d "${TMPDIR}" ]; then
+        mkdir -p "${TMPDIR}" && chmod 700 "${TMPDIR}"
+        for dir in .cache .cargo .npm tmp; do
+            mkdir -p "${TMPDIR}/$dir"
+            rm -rf "${HOME}/$dir"
+            ln -s "${TMPDIR}/$dir" "${HOME}/$dir"
+        done
     fi
 fi
 
-# Derive standard environment hooks from the explicit session path
-export VAULT_CHECKOUT_DIR="$RAMFS_SESSION_DIR/checkout"
-
-# BSD Python Paths
+# BSD Python Paths (if running on BSD pubnix)
 if [ "$_HOSTNAME" = "bsd.tilde.team" ]; then
     for _py_path in "${HOME}"/.local/lib/python3.*/site-packages; do
         if [ -d "$_py_path" ]; then
-            export PYTHONPATH="${PYTHONPATH}${PYTHONPATH:+:}$_py_path"
+            export PYTHONPATH="${PYTHONPATH:-}${PYTHONPATH:+:}$_py_path"
+            break
         fi
-        break
     done
 fi
 
-# --- 5. AUTOMATION FUNCTIONS ---
-
+# --- 4. LOAD ENVIRONMENT FRAGMENTS ---
 load_all_envs() {
     _env_dir="$HOME/.config/env"
-    set -a; . "$_env_dir/base.env"; set +a
+    if [ -f "$_env_dir/base.env" ]; then
+        set -a; . "$_env_dir/base.env"; set +a
+    fi
     if [ -d "$_env_dir" ]; then
         for _f in "$_env_dir"/*.env; do
             [ -f "$_f" ] || continue
+            [ "$_f" = "$_env_dir/base.env" ] && continue
             set -a; . "$_f"; set +a
         done
     fi
@@ -81,20 +63,4 @@ load_all_envs() {
 
 load_all_envs
 
-EPHEMERAL_AGE_IDENTITIES_FILE="/run/user/$(id -u)/session-age-keys.txt"
-
-if [ -n "$AGE_IDENTITIES" ]; then
-    echo "$AGE_IDENTITIES" > "$EPHEMERAL_AGE_IDENTITIES_FILE"
-    chmod 600 "$EPHEMERAL_AGE_IDENTITIES_FILE"
-    export AGE_IDENTITIES_FILE="$EPHEMERAL_AGE_IDENTITIES_FILE"
-fi
-
-# Vault Initialization Hook
-if [ -n "$VAULT_CHECKOUT_DIR" ] && [ ! -d "$VAULT_CHECKOUT_DIR" ]; then
-    vault open git ssh rclone base
-    find "$VAULT_CHECKOUT_DIR" -type f ! -executable -exec chmod 600 {} +
-fi
-
-load_all_envs
-unset _HOSTNAME _py_path
-. "$HOME/.cargo/env"
+unset _HOSTNAME _py_path _env_dir _f _mod

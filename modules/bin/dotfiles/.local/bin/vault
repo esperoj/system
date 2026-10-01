@@ -1,252 +1,179 @@
 #!/bin/sh
-# vault - Sovereign Module Vault Manager
-# Principles: Text-first, offline-first, minimal moving parts, hash-based identity.
-set -e
+# vault - Ergonomic manager for sovereign unencrypted private Git repository
+set -eu
 
-# --- Configuration & State Mapping ---
-# Overridable via parent environment
-: "${VAULT_ROOT:=$HOME/.vault}"
-: "${RAMFS_SESSION_DIR:=/run/user/$(id -u)/vault-session}"
-: "${AGE_IDENTITIES_FILE:=$HOME/.config/age/keys.txt}"
-: "${AGE_RECIPIENTS:=age15wngjkyhr32euwd9jaecdeq4vqms9nz6wh08erjr20nn3vmyteasfa9f6n}"
+VAULT_ROOT="${VAULT_ROOT:-$HOME/.vault}"
 
-# Derived State (Dependent on above overrides)
-ENCRYPTED_DB="$VAULT_ROOT/vault.fossil.age"
-DECRYPTED_DB="$RAMFS_SESSION_DIR/vault.fossil"
-CHECKOUT_DIR="$RAMFS_SESSION_DIR/checkout"
-STOW_STATE_FILE="$RAMFS_SESSION_DIR/.active_stow_modules"
-
-# --- Internal Helpers ---
-
-_is_open() {
-    [ -d "$CHECKOUT_DIR" ]
+die() {
+    echo "vault error: $*" >&2
+    exit 1
 }
 
-_vault_dot() {
-    # Forces 'dot' to treat the RAM checkout as the source of modules
-    MODULES_DIR="$CHECKOUT_DIR" dot "$@"
+require_vault() {
+    [ -d "$VAULT_ROOT/.git" ] || die "Vault repository not found at '$VAULT_ROOT'. Run 'vault init' first."
 }
 
-_update_state() {
-    action="$1" # 'add' or 'del'
-    mod="$2"
-    touch "$STOW_STATE_FILE"
-    case "$action" in
-        add)
-            echo "$mod" >> "$STOW_STATE_FILE"
-            # Deduplicate the list
-            tmp_f=$(mktemp)
-            sort -u "$STOW_STATE_FILE" > "$tmp_f"
-            mv "$tmp_f" "$STOW_STATE_FILE"
-            ;;
-        del)
-            tmp_f=$(mktemp)
-            grep -v "^$mod$" "$STOW_STATE_FILE" > "$tmp_f" || true
-            mv "$tmp_f" "$STOW_STATE_FILE"
-            ;;
-    esac
+# Automatically enforce strict private permissions:
+# - Root and subdirectories: 0700 (owner rwx)
+# - Regular files: 0600 (owner rw only)
+# - Executable scripts: 0700 (owner rwx)
+# - Prunes .git to avoid corrupting Git internal storage
+enforce_permissions() {
+    [ -d "$VAULT_ROOT" ] || return 0
+
+    # 1. Enforce 0700 on vault root and all subdirectories
+    chmod 700 "$VAULT_ROOT" 2>/dev/null || true
+    find "$VAULT_ROOT" -name .git -prune -o -type d -exec chmod 700 {} + 2>/dev/null || true
+
+    # 2. Enforce 0600 on files (0700 if executable)
+    if find "$VAULT_ROOT" -maxdepth 0 -executable >/dev/null 2>&1; then
+        find "$VAULT_ROOT" -name .git -prune -o -type f ! -executable -exec chmod 600 {} + 2>/dev/null || true
+        find "$VAULT_ROOT" -name .git -prune -o -type f -executable -exec chmod 700 {} + 2>/dev/null || true
+    else
+        # Portable fallback
+        find "$VAULT_ROOT" -name .git -prune -o -type f -exec chmod 600 {} + 2>/dev/null || true
+    fi
 }
 
-# --- Command Implementations ---
+# --- Subcommands ---
 
 cmd_init() {
-    echo "Initializing new sovereign vault..."
+    if [ -d "$VAULT_ROOT/.git" ]; then
+        echo "Vault already initialized at '$VAULT_ROOT'."
+        enforce_permissions
+        return 0
+    fi
+
     mkdir -p "$VAULT_ROOT"
-    mkdir -p "$RAMFS_SESSION_DIR"
-    chmod 700 "$RAMFS_SESSION_DIR"
-    
-    cd "$RAMFS_SESSION_DIR" || exit 1
-    fossil new vault.fossil > /dev/null
-    
-    age -e -r "$AGE_RECIPIENTS" -o "$ENCRYPTED_DB.tmp" vault.fossil
-    mv "$ENCRYPTED_DB.tmp" "$ENCRYPTED_DB"
-    
-    cd "$HOME"
-    rm -rf "$RAMFS_SESSION_DIR"
-    echo "Vault initialized successfully at $ENCRYPTED_DB."
+    chmod 700 "$VAULT_ROOT"
+
+    if [ $# -gt 0 ]; then
+        _remote="$1"
+        echo ":: Cloning vault from $_remote..."
+        git clone "$_remote" "$VAULT_ROOT"
+    else
+        echo ":: Initializing new private vault repository..."
+        git -C "$VAULT_ROOT" init -b main
+        
+        # Enforce strict private file permissions in Git repo
+        git -C "$VAULT_ROOT" config core.sharedRepository 0600
+        cat <<'EOF' > "$VAULT_ROOT/.gitignore"
+*.swp
+*~
+.DS_Store
+EOF
+        git -C "$VAULT_ROOT" add .gitignore
+        git -C "$VAULT_ROOT" commit -m "chore: initialize sovereign vault"
+    fi
+
+    enforce_permissions
+    echo "✓ Vault ready at $VAULT_ROOT (permissions locked to 600/700)"
 }
 
-cmd_open() {
-    shift # Remove 'open' from args
+cmd_sync() {
+    require_vault
+    cd "$VAULT_ROOT"
 
-    if ! _is_open; then
-        if [ ! -f "$ENCRYPTED_DB" ]; then
-            echo "Error: No encrypted vault found at $ENCRYPTED_DB"
-            exit 1
-        fi
-
-        echo "Decrypting vault to RAM..."
-        mkdir -p "$CHECKOUT_DIR"
-        chmod 700 "$RAMFS_SESSION_DIR"
-
-        age -d -i "$AGE_IDENTITIES_FILE" -o "$DECRYPTED_DB" "$ENCRYPTED_DB"
-        
-        cd "$CHECKOUT_DIR" || exit 1
-        fossil open "$DECRYPTED_DB" > /dev/null
-        fossil settings autosync off > /dev/null
-        
-        # Snapshot the database state to detect changes during seal
-        sha256sum "$DECRYPTED_DB" > "$RAMFS_SESSION_DIR/.db_hash"
-
-        echo "Vault storage decrypted and opened."
+    echo ":: Synchronizing vault with remote..."
+    if ! git remote | grep -q "^origin$"; then
+        echo "Notice: No remote 'origin' configured. Skipping fetch/push."
+        enforce_permissions
+        return 0
     fi
 
-    # If modules were provided, apply them immediately
-    if [ "$#" -gt 0 ]; then
-        cmd_apply "$@"
+    # Auto-commit tracked and untracked changes if any
+    if [ -n "$(git status --porcelain)" ]; then
+        echo ":: Staging and committing local changes..."
+        git add -A
+        git commit -m "sync: $(uname -n) snapshot $(date '+%Y-%m-%d %H:%M:%S')"
     fi
+
+    git pull --rebase origin main 2>/dev/null || git pull --rebase origin master 2>/dev/null || true
+    git push origin HEAD
+
+    enforce_permissions
+    echo "✓ Vault synchronized and permissions locked to 600."
 }
 
 cmd_apply() {
-    if ! _is_open; then
-        echo "Error: Vault is not open. Run 'vault open' first."
-        exit 1
-    fi
+    require_vault
+    [ $# -gt 0 ] || die "apply requires at least one module name. Available: $(cmd_ls)"
 
-    for mod in "$@"; do
-        if [ -d "$CHECKOUT_DIR/$mod" ]; then
-            _vault_dot apply "$mod"
-            _update_state add "$mod"
-        else
-            echo "Warning: Module '$mod' not found in vault."
-        fi
-    done
+    # Lock down permissions before stow links files into $HOME
+    enforce_permissions
+    MODULES_DIR="$VAULT_ROOT" dot apply "$@"
 }
 
 cmd_remove() {
-    if ! _is_open; then
-        echo "Error: Vault is not open."
-        exit 1
-    fi
+    require_vault
+    [ $# -gt 0 ] || die "remove requires at least one module name."
+    MODULES_DIR="$VAULT_ROOT" dot remove "$@"
+}
 
-    for mod in "$@"; do
-        _vault_dot remove "$mod"
-        _update_state del "$mod"
-    done
+cmd_ls() {
+    require_vault
+    # List top-level directories, ignoring .git and hidden dirs
+    _mods=$(find "$VAULT_ROOT" -maxdepth 1 -mindepth 1 -type d ! -name ".*" -exec basename {} \; | sort | tr '\n' ' ')
+    if [ -n "$_mods" ]; then
+        echo "$_mods"
+    else
+        echo "(none)"
+    fi
 }
 
 cmd_status() {
-    if _is_open; then
-        echo "Vault status: OPEN"
-        if [ -f "$STOW_STATE_FILE" ]; then
-            echo "Active stows: $(tr '\n' ' ' < "$STOW_STATE_FILE")"
-        fi
-        echo "---------------------------------------------------"
-        cd "$CHECKOUT_DIR" || exit 1
-        
-        CHANGES=$(fossil changes)
-        EXTRAS=$(fossil extras --dotfiles)
-        
-        [ -n "$CHANGES" ] && echo "$CHANGES"
-        [ -n "$EXTRAS" ] && echo "$EXTRAS" | sed 's/^/EXTRA      /'
-        [ -z "$CHANGES" ] && [ -z "$EXTRAS" ] && echo "No uncommitted changes."
-    else
-        echo "Vault status: SEALED"
-    fi
-}
-
-cmd_cd() {
-    if ! _is_open; then
-        echo "Error: Vault is not open."
-        exit 1
-    fi
-    echo "Entering vault subshell at $CHECKOUT_DIR"
-    cd "$CHECKOUT_DIR" || exit 1
-    "${SHELL:-/bin/sh}"
+    require_vault
+    cd "$VAULT_ROOT"
+    echo "=== Vault Repository Status ($VAULT_ROOT) ==="
+    git status -s
+    echo "=== Available Modules ==="
+    cmd_ls
 }
 
 cmd_diff() {
-    if ! _is_open; then
-        echo "Error: Vault is not open."
-        exit 1
-    fi
-    cd "$CHECKOUT_DIR" || exit 1
-    fossil diff --tk 2>/dev/null || fossil diff
+    require_vault
+    git -C "$VAULT_ROOT" diff "$@"
 }
 
-cmd_seal() {
-    if ! _is_open; then
-        echo "Vault is already sealed."
-        exit 0
-    fi
-
-    echo "Sealing vault..."
-    
-    # 1. Automatic Unstow of all tracked modules
-    if [ -f "$STOW_STATE_FILE" ]; then
-        echo "Removing active stows..."
-        # shellcheck disable=SC2046
-        _vault_dot remove $(cat "$STOW_STATE_FILE")
-        rm -f "$STOW_STATE_FILE"
-    fi
-
-    # 2. Fossil cleanup & Change Detection
-    cd "$CHECKOUT_DIR" || exit 1
-    fossil addremove --dotfiles > /dev/null
-    
-    DB_CHANGED=0
-    if [ -n "$(fossil changes)" ]; then
-        echo "Changes detected. Committing..."
-        fossil commit -m "Auto-commit on seal $(date '+%Y-%m-%d %H:%M:%S')" --allow-empty > /dev/null
-        DB_CHANGED=1
-    fi
-
-    # Check database hash BEFORE closing to catch manual commits in subshells
-    if [ "$DB_CHANGED" -eq 0 ] && [ -f "$RAMFS_SESSION_DIR/.db_hash" ]; then
-        if ! sha256sum -c "$RAMFS_SESSION_DIR/.db_hash" --status 2>/dev/null; then
-            DB_CHANGED=1
-        fi
-    fi
-
-    # 3. Handle Atomic Encrypt only if changes occurred
-    if [ "$DB_CHANGED" -eq 1 ]; then
-        echo "Database changes detected. Encrypting database..."
-        fossil close > /dev/null
-        
-        cd "$RAMFS_SESSION_DIR" || exit 1
-        age -e -r "$AGE_RECIPIENTS" -o "$ENCRYPTED_DB.tmp" vault.fossil
-        
-        # 4. Integrity Check: Verify before overwriting persistent storage
-        echo "Verifying encrypted file integrity..."
-        if age -d -i "$AGE_IDENTITIES_FILE" -o "vault.fossil.verify" "$ENCRYPTED_DB.tmp"; then
-            if cmp -s vault.fossil vault.fossil.verify; then
-                mv "$ENCRYPTED_DB.tmp" "$ENCRYPTED_DB"
-                echo "Integrity verified. Vault successfully updated."
-            else
-                echo "CRITICAL ERROR: Encrypted file does not match decrypted database!"
-                echo "Seal aborted to prevent data loss. Session preserved in RAM."
-                rm -f "$ENCRYPTED_DB.tmp" "vault.fossil.verify"
-                exit 1
-            fi
-        else
-            echo "CRITICAL ERROR: Failed to decrypt the temporary encrypted file!"
-            echo "Seal aborted to prevent data loss. Session preserved in RAM."
-            rm -f "$ENCRYPTED_DB.tmp"
-            exit 1
-        fi
-    else
-        echo "No changes made to the database. Skipping encryption."
-    fi
-
-    # 5. Wipe RAM session
-    cd "$HOME" || exit 1
-    rm -rf "$RAMFS_SESSION_DIR"
-    echo "Vault sealed and session wiped."
+cmd_chmod() {
+    require_vault
+    echo ":: Enforcing 600/700 permissions across $VAULT_ROOT..."
+    enforce_permissions
+    echo "✓ All files locked to 600, directories locked to 700."
 }
 
-# --- Command Router ---
-case "$1" in
-    init)       cmd_init ;;
-    open)       cmd_open "$@" ;;
-    apply)      shift; cmd_apply "$@" ;;
-    remove)     shift; cmd_remove "$@" ;;
-    seal|close) cmd_seal ;;
-    status)     cmd_status ;;
-    cd)         cmd_cd ;;
-    diff)       cmd_diff ;;
+cmd_cd() {
+    require_vault
+    echo "Entering vault shell at $VAULT_ROOT (exit to return)..."
+    (cd "$VAULT_ROOT" && "${SHELL:-/bin/sh}")
+}
+
+# --- Router ---
+case "${1:-}" in
+    init)   shift; cmd_init "$@" ;;
+    sync)   shift; cmd_sync "$@" ;;
+    apply)  shift; cmd_apply "$@" ;;
+    remove) shift; cmd_remove "$@" ;;
+    status) shift; cmd_status "$@" ;;
+    diff)   shift; cmd_diff "$@" ;;
+    chmod)  shift; cmd_chmod ;;
+    ls)     shift; cmd_ls ;;
+    cd)     shift; cmd_cd ;;
     *)
-        echo "Usage: vault {init|open [mods]|apply [mods]|remove [mods]|seal|status|cd|diff}"
+        cat <<EOF
+vault - Sovereign Private Git Manager
+
+Usage:
+  vault init [remote-url]     Initialize ~/.vault (or clone from VPS)
+  vault sync                  Commit local changes, pull --rebase, push to VPS
+  vault apply <module...>     Lock to 600 and link module dotfiles via stow
+  vault remove <module...>    Unlink module dotfiles
+  vault chmod                 Manually enforce 600 (files) and 700 (dirs)
+  vault status                Show modified files and available modules
+  vault diff                  Show git diff of uncommitted changes
+  vault ls                    List available private modules
+  vault cd                    Spawn a subshell inside ~/.vault
+EOF
         exit 1
         ;;
 esac
-

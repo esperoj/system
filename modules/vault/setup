@@ -1,4 +1,74 @@
 #!/bin/sh
+set -eu
 
-echo download age or check it exist yet
+VAULT_ROOT="${VAULT_ROOT:-$HOME/.vault}"
+VAULT_REMOTE="${VAULT_REMOTE:-repos:srv/git/vault.git}"
 
+echo ":: Setting up Sovereign Vault at $VAULT_ROOT..."
+
+if [ ! -d "$VAULT_ROOT/.git" ]; then
+    # Try cloning from the remote alias first
+    echo ":: Attempting to clone from $VAULT_REMOTE..."
+    if git clone "$VAULT_REMOTE" "$VAULT_ROOT" 2>/dev/null; then
+        echo "✓ Cloned vault successfully from $VAULT_REMOTE"
+    else
+        echo ":: Remote unreachable or key not loaded. Initializing fresh local vault..."
+        mkdir -p "$VAULT_ROOT"
+        chmod 700 "$VAULT_ROOT"
+        git -C "$VAULT_ROOT" init -b main
+        git -C "$VAULT_ROOT" remote add origin "$VAULT_REMOTE"
+        git -C "$VAULT_ROOT" config core.sharedRepository 0600
+        
+        cat <<'EOF' > "$VAULT_ROOT/.gitignore"
+*.swp
+*~
+.DS_Store
+EOF
+        git -C "$VAULT_ROOT" add .gitignore
+        git -C "$VAULT_ROOT" commit -m "chore: initialize sovereign vault"
+    fi
+else
+    echo "✓ Vault Git repository already exists."
+    # Ensure remote 'origin' points to the desired alias
+    if git -C "$VAULT_ROOT" remote | grep -q "^origin$"; then
+        git -C "$VAULT_ROOT" remote set-url origin "$VAULT_REMOTE"
+    else
+        git -C "$VAULT_ROOT" remote add origin "$VAULT_REMOTE"
+    fi
+fi
+
+# Enforce strict 600/700 permissions across the vault
+if command -v vault >/dev/null 2>&1; then
+    vault chmod
+else
+    chmod 700 "$VAULT_ROOT"
+    find "$VAULT_ROOT" -name .git -prune -o -type d -exec chmod 700 {} + 2>/dev/null || true
+    find "$VAULT_ROOT" -name .git -prune -o -type f -exec chmod 600 {} + 2>/dev/null || true
+fi
+
+# Retrieve the environment-specific vault modules registered during ./configure
+TARGET_MODS=""
+if command -v kv >/dev/null 2>&1; then
+    TARGET_MODS=$(kv smembers "vault-modules" 2>/dev/null || true)
+fi
+
+# Apply only the modules requested by this node's environment
+if [ -n "$TARGET_MODS" ]; then
+    echo ":: Applying configured vault modules: $TARGET_MODS"
+    for mod in $TARGET_MODS; do
+        if [ -d "$VAULT_ROOT/$mod" ]; then
+            if command -v vault >/dev/null 2>&1; then
+                vault apply "$mod"
+            else
+                MODULES_DIR="$VAULT_ROOT" dot apply "$mod"
+            fi
+            echo "  + Applied: $mod"
+        else
+            echo "  ! Notice: Module '$mod' not found in $VAULT_ROOT (skipping)"
+        fi
+    done
+else
+    echo ":: No environment-specific vault modules declared in kv store."
+fi
+
+echo "✓ Vault setup complete."

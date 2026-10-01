@@ -24,17 +24,16 @@ export RESTIC_REPOSITORY     := $(RESTIC_BACKUPS_REPOSITORY)
 
 # Rclone Remotes
 WORKSPACE_RCLONE_REMOTE := workspace:
-VAULT_RCLONE_REMOTE     := vault:
 BACKUPS_RCLONE_REMOTE   := backups:
 
 export RESTIC_HOST  := $(MACHINE_TYPE)
-.PHONY: all daily sync-workspace sync-vault sync-backups snap clean info init-restic resync
+.PHONY: all daily sync-workspace sync-backups snap clean info init-restic resync
 
 # Default target
 all: daily
 
 # The Daily Peace-of-Mind routine (Runs regular delta syncs)
-daily: sync-workspace sync-vault sync-backups .WAIT snap .WAIT clean
+daily: sync-workspace sync-backups .WAIT snap .WAIT clean
 
 info:
 	@echo "======================================================================"
@@ -61,10 +60,6 @@ sync-workspace: info
 	@echo "--> Syncing Workspace..."
 	@$(call do_bisync,$(WORKSPACE_DIR),$(WORKSPACE_RCLONE_REMOTE))
 
-sync-vault: info
-	@echo "--> Syncing Secure Vault..."
-	@$(call do_bisync,$(VAULT_DIR),$(VAULT_RCLONE_REMOTE))
-
 sync-backups: info
 	@echo "--> Syncing Backups..."
 	@$(call do_bisync,$(BACKUP_DIR),$(BACKUPS_RCLONE_REMOTE))
@@ -77,10 +72,6 @@ resync: info
 	@echo "--> Performing first-time baseline resync for Workspace..."
 	mkdir -p $(WORKSPACE_DIR)
 	rclone bisync $(WORKSPACE_DIR) $(WORKSPACE_RCLONE_REMOTE) --resync --verbose --fast-list
-
-	@echo "--> Performing first-time baseline resync for Secure Vault..."
-	mkdir -p $(VAULT_DIR)
-	rclone bisync $(VAULT_DIR) $(VAULT_RCLONE_REMOTE) --resync --verbose --fast-list
 
 	@echo "--> Performing first-time baseline resync for Backups..."
 	mkdir -p $(BACKUP_DIR)
