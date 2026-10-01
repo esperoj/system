@@ -3,10 +3,10 @@
 set -eu
 
 # 1. Identify Package Manager
-if command -v apt-get >/dev/null 2>&1; then
-    MGR="apt"
-elif command -v apk >/dev/null 2>&1; then
+if command -v apk >/dev/null 2>&1; then
     MGR="apk"
+elif command -v apt-get >/dev/null 2>&1; then
+    MGR="apt"
 else
     echo "Unsupported system" >&2; exit 1
 fi
