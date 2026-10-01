@@ -9,29 +9,24 @@ case "$DISTRO" in
     debian)  MGR="apt" ;;
     freebsd) MGR="pkg" ;;
     *)
-        echo "Notice: Distro '$DISTRO' not managed via system packages. Relying on fetch-bin/user-space." >&2
+        echo "Notice: Distro '$DISTRO' not managed via system packages. Skipping." >&2
         exit 0
         ;;
 esac
 
 if [ "$DISTRO" != "termux" ] && [ "$(id -u)" -ne 0 ] && ! sudo -n true 2>/dev/null; then
-    echo "Notice: Insufficient privileges (not root and no passwordless sudo). Skipping system packages." >&2
+    echo "Notice: Insufficient privileges (not root and no cached sudo). Skipping system packages." >&2
     exit 0
 fi
 
+# Retrieve ONLY standard common and distro-specific sets
 COMMON_PKGS=$(kv smembers "common-pkgs" 2>/dev/null || true)
 DISTRO_PKGS=$(kv smembers "${DISTRO}-pkgs" 2>/dev/null || true)
 
-# Backward-compatibility fallback for legacy apt keys
-APT_PKGS=""
-if [ "$DISTRO" = "debian" ]; then
-    APT_PKGS=$(kv smembers "apt-pkgs" 2>/dev/null || true)
-fi
-
-ALL_PKGS=$(printf '%s %s %s' "$COMMON_PKGS" "$DISTRO_PKGS" "$APT_PKGS" | tr -s ' ' | sed 's/^ //;s/ $//')
+ALL_PKGS=$(printf '%s %s' "$COMMON_PKGS" "$DISTRO_PKGS" | tr -s ' ' | sed 's/^ //;s/ $//')
 
 if [ -n "$ALL_PKGS" ]; then
-    echo ":: Bulk installing packages for [$DISTRO] via [$MGR]: $ALL_PKGS"
+    echo ":: Installing node dependencies for [$DISTRO] via [$MGR]: $ALL_PKGS"
     # shellcheck disable=SC2086
     install-sys-pkg $ALL_PKGS
 fi

@@ -4,34 +4,26 @@ set -eu
 VAULT_ROOT="${VAULT_ROOT:-$HOME/.vault}"
 VAULT_REMOTE="${VAULT_REMOTE:-repos:srv/git/vault.git}"
 
-echo ":: Setting up Sovereign Vault at $VAULT_ROOT..."
+echo ":: Initializing Sovereign Vault at $VAULT_ROOT..."
 
-# 1. If vault doesn't exist, try to clone or prepare
+# 1. Initialize repository if absent
 if [ ! -d "$VAULT_ROOT/.git" ]; then
-    echo ":: Checking access to $VAULT_REMOTE..."
-
-    # Check if SSH authentication succeeds or if the remote is reachable
+    echo ":: Checking access to remote $VAULT_REMOTE..."
     if git clone "$VAULT_REMOTE" "$VAULT_ROOT" 2>/dev/null; then
         echo "✓ Cloned vault successfully from $VAULT_REMOTE"
     else
         echo "------------------------------------------------------------------"
         echo " NOTICE: Could not clone vault from $VAULT_REMOTE"
-        echo " Cause: Missing SSH private key or remote is unreachable."
-        echo ""
-        echo " To complete vault setup later:"
-        echo "   1. Copy your private key to ~/.ssh/id_ed25519 (chmod 600)"
-        echo "      OR restore from cold backup: backup restore <file>.age ~/.vault"
-        echo "   2. Run: vault init $VAULT_REMOTE"
+        echo " Complete vault setup manually once identity keys are in place:"
+        echo "   1. vault init $VAULT_REMOTE"
+        echo "   2. OR restore cold backup: backup restore <seed.tar.gz.age> ~/.vault"
         echo "------------------------------------------------------------------"
-        
-        # Create empty directory with correct permissions without corrupting git history
         mkdir -p "$VAULT_ROOT"
         chmod 700 "$VAULT_ROOT"
         exit 0
     fi
 else
-    echo "✓ Vault Git repository already exists."
-    # Ensure remote 'origin' points to the desired alias
+    echo "✓ Vault Git repository already present."
     if git -C "$VAULT_ROOT" remote | grep -q "^origin$"; then
         git -C "$VAULT_ROOT" remote set-url origin "$VAULT_REMOTE"
     else
@@ -39,34 +31,20 @@ else
     fi
 fi
 
-# 2. Enforce strict permissions across all files
-if command -v vault >/dev/null 2>&1; then
-    vault chmod
-else
-    chmod 700 "$VAULT_ROOT"
-    find "$VAULT_ROOT" -name .git -prune -o -type d -exec chmod 700 {} + 2>/dev/null || true
-    find "$VAULT_ROOT" -name .git -prune -o -type f -exec chmod 600 {} + 2>/dev/null || true
-fi
+# 2. Strict permission enforcement delegated entirely to vault CLI
+vault chmod
 
-# 3. Retrieve environment-specific vault modules registered during ./configure
-TARGET_MODS=""
-if command -v kv >/dev/null 2>&1; then
-    TARGET_MODS=$(kv smembers "vault-modules" 2>/dev/null || true)
-fi
+# 3. Apply target modules registered in .kv-store
+TARGET_MODS=$(kv smembers "vault-modules" 2>/dev/null || true)
 
-# 4. Apply configured modules safely
 if [ -n "$TARGET_MODS" ]; then
     echo ":: Applying configured vault modules: $TARGET_MODS"
     for mod in $TARGET_MODS; do
         if [ -d "$VAULT_ROOT/$mod" ]; then
-            if command -v vault >/dev/null 2>&1; then
-                vault apply "$mod"
-            else
-                MODULES_DIR="$VAULT_ROOT" dot apply "$mod"
-            fi
+            vault apply "$mod"
             echo "  + Applied: $mod"
         else
-            echo "  ! Skipping '$mod' (not found in $VAULT_ROOT)"
+            echo "  ! Skipping '$mod' (not present in $VAULT_ROOT)"
         fi
     done
 fi

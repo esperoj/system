@@ -24,4 +24,3 @@ PS1='$(if [ $? -eq 0 ]; then echo "\[\e[32m\]✔"; else echo "\[\e[31m\]✘"; fi
 
 # 6. Source local profile
 [ -f "$HOME/.profile" ] && . "$HOME/.profile"
-[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"

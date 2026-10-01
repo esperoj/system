@@ -1,4 +1,3 @@
-  set rtp^="$HOME/.opam/default/share/ocp-indent/vim"
 set mouse=a
 
 " Highlight cursor line underneath the cursor horizontally.

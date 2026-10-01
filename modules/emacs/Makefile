@@ -4,5 +4,5 @@ emacs: stow sys-pkgs
 	MODULES_DIR="$(MODULES_DIR)/emacs" dot apply dotfiles
 emacs-cfg: sys-pkgs-cfg .WAIT stow-cfg
 	@kv sadd common-pkgs pandoc
-	@kv sadd debian-pkgs emacs-gtk elpa-markdown-mode elpa-magit elpa-tuareg
+	@kv sadd debian-pkgs emacs-gtk elpa-markdown-mode elpa-magit
 	@kv sadd termux-pkgs emacs
