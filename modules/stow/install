@@ -1,3 +1,33 @@
 #!/bin/sh
 set -eu
 
+# 1. If stow is already installed via system package manager, exit immediately
+if command -v stow >/dev/null 2>&1; then
+    echo "✓ stow is already installed."
+    exit 0
+fi
+
+# 2. Rootless Fallback for Pubnix / Unprivileged environments
+echo ":: stow not found. Installing standalone GNU Stow to $HOME/.local..."
+
+if ! command -v perl >/dev/null 2>&1; then
+    echo "Error: perl is required to run GNU Stow on rootless systems." >&2
+    exit 1
+fi
+
+TMP_DIR=$(mktemp -d -t stow-install-XXXXXX)
+trap 'rm -rf "${TMP_DIR}"' EXIT
+
+STOW_VER="2.4.1"
+URL="https://ftp.gnu.org/gnu/stow/stow-${STOW_VER}.tar.gz"
+
+echo ":: Downloading GNU Stow ${STOW_VER}..."
+curl -fsSL "$URL" | tar -xz -C "$TMP_DIR"
+
+cd "$TMP_DIR/stow-${STOW_VER}"
+
+echo ":: Configuring and installing to $HOME/.local..."
+./configure --prefix="$HOME/.local" >/dev/null
+make install >/dev/null
+
+echo "✓ GNU Stow installed successfully to $HOME/.local/bin/stow"

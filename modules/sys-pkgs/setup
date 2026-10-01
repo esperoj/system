@@ -1,26 +1,35 @@
 #!/bin/sh
-
 set -eu
 
-# 1. Identify Package Manager
-if command -v apk >/dev/null 2>&1; then
-    MGR="apk"
-elif command -v apt-get >/dev/null 2>&1; then
-    MGR="apt"
-else
-    echo "Unsupported system" >&2; exit 1
-fi
+. "${LIB_DIR}/sh/os.sh"
 
-# 2. Check for root or sudo privileges
-# - User is root ($EUID is 0) OR
-# - Sudo is available and the user has valid cached credentials (-n checks non-interactively)
-if [ "$(id -u)" -ne 0 ] && ! sudo -n true 2>/dev/null; then
-    echo "Skipping package installation: insufficient privileges (not root and no sudo access)." >&2
+# 1. Identify Node Package Manager
+case "$DISTRO" in
+    termux)  MGR="pkg" ;;
+    alpine)  MGR="apk" ;;
+    debian)  MGR="apt" ;;
+    freebsd) MGR="pkg" ;;
+    *)
+        echo "Notice: Unrecognized distro '$DISTRO'. Skipping system package manager." >&2
+        exit 0
+        ;;
+esac
+
+# 2. Check for root or sudo privileges (Termux skips sudo)
+if [ "$DISTRO" != "termux" ] && [ "$(id -u)" -ne 0 ] && ! sudo -n true 2>/dev/null; then
+    echo "Notice: Insufficient privileges (not root and no cached sudo). Skipping system packages." >&2
     exit 0
 fi
 
-# 3. Perform Installation
-# If we reached here, we are either root or have sudo
-pkgs=$(kv smembers ${MGR}-pkgs)
-[ -n "$pkgs" ] && install-sys-pkg $pkgs
+# 3. Retrieve common packages + distro-specific packages from kv
+COMMON_PKGS=$(kv smembers "common-pkgs" 2>/dev/null || true)
+DISTRO_PKGS=$(kv smembers "${DISTRO}-pkgs" 2>/dev/null || true)
 
+ALL_PKGS=$(printf '%s %s' "$COMMON_PKGS" "$DISTRO_PKGS" | tr -s ' ' | sed 's/^ //;s/ $//')
+
+# 4. Perform bulk installation if packages are registered
+if [ -n "$ALL_PKGS" ]; then
+    echo ":: Installing system packages for [$DISTRO] via [$MGR]: $ALL_PKGS"
+    # shellcheck disable=SC2086
+    install-sys-pkg $ALL_PKGS
+fi
