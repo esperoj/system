@@ -15,7 +15,7 @@ STRINGS_DIR="$STORE/strings"
 SETS_DIR="$STORE/sets"
 HASHES_DIR="$STORE/hashes"
 
-mkdir -p "$STRINGS_DIR" "$SETS_DIR" "$HASHES_DIR"
+mkdir -p "$STRINGS_DIR" "$SETS_DIR" "$HASHES_DIR" 2>/dev/null || true
 
 # --- Internal Helpers ---
 k2p() { printf '%s' "$1" | tr ':' '/'; }
@@ -56,7 +56,7 @@ case "$CMD" in
         [ $# -ge 2 ] || { echo "Error: SET requires <key> and <value>" >&2; exit 1; }
         _key="$1"; _val="$2"
         _path="$STRINGS_DIR/$(k2p "$_key")"
-        mkdir -p "$(dirname "$_path")"
+        mkdir -p "$(dirname "$_path")" 2>/dev/null || true
         printf '%s' "$_val" > "$_path.tmp.$$" && mv "$_path.tmp.$$" "$_path"
         ;;
 
@@ -74,7 +74,7 @@ case "$CMD" in
     append)
         [ $# -ge 2 ] || { echo "Error: APPEND requires <key> and <value>" >&2; exit 1; }
         _path="$STRINGS_DIR/$(k2p "$1")"
-        mkdir -p "$(dirname "$_path")"
+        mkdir -p "$(dirname "$_path")" 2>/dev/null || true
         printf '%s' "$2" >> "$_path"
         ;;
 
@@ -97,7 +97,7 @@ case "$CMD" in
         [ $# -ge 2 ] || { echo "Error: SADD requires <set> and at least one member" >&2; exit 1; }
         _sdir="$SETS_DIR/$(k2p "$1")"
         shift
-        mkdir -p "$_sdir"
+        mkdir -p "$_sdir" 2>/dev/null || true
         for _m in "$@"; do
             [ -n "$_m" ] && : > "$_sdir/$_m"
         done
@@ -150,7 +150,7 @@ case "$CMD" in
     hset)
         [ $# -ge 3 ] || { echo "Error: HSET requires <hash>, <field>, and <value>" >&2; exit 1; }
         _path="$HASHES_DIR/$(k2p "$1")/$(k2p "$2")"
-        mkdir -p "$(dirname "$_path")"
+        mkdir -p "$(dirname "$_path")" 2>/dev/null || true
         printf '%s' "$3" > "$_path.tmp.$$" && mv "$_path.tmp.$$" "$_path"
         ;;
 

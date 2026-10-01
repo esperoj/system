@@ -16,20 +16,21 @@ fetch_resolve_url() {
             ;;
         gh:*)
             _repo="${_source#gh:}"
-            # 1. Resolve latest tag via HTTP redirect (zero API call, zero rate limit)
-            _tag=$(curl -fsSIL -o /dev/null -w '%{url_effective}' "https://github.com/${_repo}/releases/latest" 2>/dev/null | sed 's|.*/tag/||')
-            [ -z "$_tag" ] && { echo "fetch: Failed to resolve latest tag for ${_repo}" >&2; return 1; }
-
             if [ -n "$_pattern" ]; then
-                # 2. Extract asset link matching regex from expanded assets HTML
-                _asset_path=$(curl -fsSL "https://github.com/${_repo}/releases/expanded_assets/${_tag}" 2>/dev/null \
-                    | grep -o "/${_repo}/releases/download/[^\"]*" \
+                # Use GitHub API (stable JSON) instead of brittle HTML DOM scraping
+                # Uses grep on JSON to avoid jq dependency during early bootstrap
+                _url=$(curl -fsSL "https://api.github.com/repos/${_repo}/releases/latest" 2>/dev/null \
+                    | grep -o '"browser_download_url": "[^"]*"' \
+                    | cut -d'"' -f4 \
                     | grep -E "$_pattern" \
                     | head -n 1)
 
-                [ -z "$_asset_path" ] && { echo "fetch: Asset matching '$_pattern' not found for ${_repo} (${_tag})" >&2; return 1; }
-                echo "https://github.com${_asset_path}"
+                [ -z "$_url" ] && { echo "fetch: Asset matching '$_pattern' not found for ${_repo} via API" >&2; return 1; }
+                echo "$_url"
             else
+                # Resolve latest tag via redirect for source tarballs
+                _tag=$(curl -fsSIL -o /dev/null -w '%{url_effective}' "https://github.com/${_repo}/releases/latest" 2>/dev/null | sed 's|.*/tag/||')
+                [ -z "$_tag" ] && { echo "fetch: Failed to resolve latest tag for ${_repo}" >&2; return 1; }
                 echo "https://github.com/${_repo}/archive/refs/tags/${_tag}.tar.gz"
             fi
             ;;

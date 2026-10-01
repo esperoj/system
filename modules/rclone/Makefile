@@ -2,5 +2,5 @@
 rclone: sys-pkgs
 	"$(MODULES_DIR)/rclone/install"
 rclone-cfg: sys-pkgs-cfg
-	@kv sadd apt-pkgs rclone
+	@kv sadd debian-pkgs rclone
 
