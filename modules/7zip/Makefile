@@ -2,5 +2,5 @@
 7zip: sys-pkgs
 	"$(MODULES_DIR)/7zip/install"
 7zip-cfg: sys-pkgs-cfg
-	@kv append "apt-pkgs" "7zip "
+	@kv sadd apt-pkgs 7zip
 

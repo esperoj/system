@@ -4,5 +4,5 @@ emacs: stow sys-pkgs
 	MODULES_DIR="$(MODULES_DIR)/emacs" dot apply dotfiles
 	# sudo npm install -g bash-language-server vscode-langservers-extracted
 emacs-cfg: sys-pkgs-cfg .WAIT stow-cfg
-	@kv append "apt-pkgs" "pandoc emacs-gtk elpa-markdown-mode elpa-magit elpa-tuareg"
+	@kv sadd apt-pkgs pandoc emacs-gtk elpa-markdown-mode elpa-magit elpa-tuareg
 
