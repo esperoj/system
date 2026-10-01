@@ -1,5 +1,5 @@
 .PHONY: base base-cfg
-BASE_DEPS=7zip age bin env fossil git jq lib rclone shell ssh stow vault recipes
+BASE_DEPS=7zip age bin env git jq lib rclone shell ssh stow vault recipes
 base: sys-pkgs $(BASE_DEPS)
 base-cfg: sys-pkgs-cfg .WAIT $(addsuffix -cfg,$(BASE_DEPS))
 	@kv append "apt-pkgs" "parallel ca-certificates coreutils curl findutils gawk make moreutils sed sudo time wget unzip xz-utils zstd "
