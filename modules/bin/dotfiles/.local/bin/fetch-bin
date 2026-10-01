@@ -18,7 +18,7 @@ if [ -f "${LIB_DIR}/sh/fetch.sh" ]; then
 else
     # Fallback to relative script location
     _self_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-    . "${_self_dir}/../../lib/dotfiles/.local/lib/sh/fetch.sh"
+    . "${_self_dir}/../../../lib/dotfiles/.local/lib/sh/fetch.sh"
 fi
 
 TMP_DIR=$(mktemp -d -t fetch-bin-XXXXXX)

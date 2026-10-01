@@ -2,5 +2,4 @@
 sys-pkgs:
 	"$(MODULES_DIR)/sys-pkgs/setup"
 sys-pkgs-cfg:
-	@rm -rf "$(KV_STORE)"
-
+	@mkdir -p "$(KV_STORE)"

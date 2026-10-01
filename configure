@@ -1,24 +1,21 @@
 #!/bin/sh
-
-# Exit on error
 set -e
 
-# Check for input
 if [ $# -eq 0 ]; then
-    echo "Usage: $0 target1 target2 ..."
+    echo "Usage: $0 <target1> [target2...]"
     exit 1
 fi
 
-# Initialize an empty variable to hold our modified targets
-MAKE_TARGETS=""
+# Reset state once cleanly before parallel execution
+KV_STORE="${KV_STORE:-$(pwd)/.kv-store}"
+rm -rf "$KV_STORE"
+mkdir -p "$KV_STORE"
 
-# Loop through inputs and append -cfg to each
+MAKE_TARGETS=""
 for arg in "$@"; do
     MAKE_TARGETS="$MAKE_TARGETS ${arg}-cfg"
 done
 
-echo "==> Running: make$MAKE_TARGETS"
-
-# Execute make once with the full list
+echo "==> Configuring node state: make$MAKE_TARGETS"
 # shellcheck disable=SC2086
 make $MAKE_TARGETS

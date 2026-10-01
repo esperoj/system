@@ -3,5 +3,5 @@ crontab: sys-pkgs stow
 	MODULES_DIR="$(MODULES_DIR)/crontab" dot apply dotfiles
 	crontab "$${HOME}/.config/crontab/crontab"
 crontab-cfg: sys-pkgs-cfg .WAIT stow-cfg
-	@kv sadd apt-pkgs cron
-
+	@kv sadd debian-pkgs cron
+	@kv sadd termux-pkgs cronie

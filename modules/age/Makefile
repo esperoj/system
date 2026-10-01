@@ -4,5 +4,4 @@ age: sys-pkgs stow
 	mkdir -p ~/.config/age
 	MODULES_DIR="$(MODULES_DIR)/age" dot apply dotfiles
 age-cfg: sys-pkgs-cfg .WAIT stow-cfg
-	@kv sadd apt-pkgs age
-
+	@kv sadd common-pkgs age
