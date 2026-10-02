@@ -1,14 +1,14 @@
 #!/bin/sh
-# kv - Redis-compatible flat-file key-value store in POSIX shell
+# kv - flat-file key-value store with Unix line-oriented Redis-ish semantics
 set -eu
 
 # --- Storage Location ---
 if [ -n "${KV_STORE:-}" ]; then
-    STORE="$KV_STORE"
+  STORE="$KV_STORE"
 elif [ -d "./.kv-store" ]; then
-    STORE="./.kv-store"
+  STORE="./.kv-store"
 else
-    STORE="${XDG_STATE_HOME:-$HOME/.local/state}/kv"
+  STORE="${XDG_STATE_HOME:-$HOME/.local/state}/kv"
 fi
 
 STRINGS_DIR="$STORE/strings"
@@ -21,32 +21,38 @@ mkdir -p "$STRINGS_DIR" "$SETS_DIR" "$HASHES_DIR" 2>/dev/null || true
 k2p() { printf '%s' "$1" | tr ':' '/'; }
 p2k() { printf '%s' "$1" | tr '/' ':'; }
 
+die() {
+  echo "kv: $*" >&2
+  exit 1
+}
+
 usage() {
-    cat <<EOF >&2
+  cat <<EOF >&2
 Usage: kv <command> [args...]
 
-Commands:
-  SET <key> <val>           Set string value
-  GET <key>                 Get string value (returns 'nil' if missing)
-  APPEND <key> <val>        Append string to key
-  MGET <key...>             Get multiple string values
+Line-oriented Unix output conventions:
 
-  SADD <set> <member...>    Add one or more members to a set (variadic)
-  SMEMBERS <set>            List all members of a set
-  SREM <set> <member...>    Remove one or more members from a set
-  SISMEMBER <set> <member>  Check if member exists in set (returns 1 or 0)
-  SCARD <set>               Get member count of a set
+SET <key> <val>           Set string value
+GET <key>                 Get string value; exit 1 if missing
+APPEND <key> <val>        Append string to key
+MGET <key...>             Print one value per line; empty line if missing
 
-  HSET <hash> <field> <val> Set hash field value
-  HGET <hash> <field>       Get hash field value (returns 'nil' if missing)
-  HDEL <hash> <field>       Delete hash field
-  HKEYS <hash>              List all fields in a hash
+SADD <set> <member...>    Add members to a set
+SMEMBERS <set>            Print one member per line
+SREM <set> <member...>    Remove members from a set
+SISMEMBER <set> <member>  Print 1 or 0; exit 1 if missing
+SCARD <set>               Print member count
 
-  DEL <key>                 Delete key across all namespaces
-  EXISTS <key>              Check if key exists (exit code 0 if exists, 1 otherwise)
-  KEYS [pattern]            List matching keys across all namespaces
+HSET <hash> <field> <val> Set hash field value
+HGET <hash> <field>       Get hash field value; exit 1 if missing
+HDEL <hash> <field>       Delete hash field
+HKEYS <hash>              Print hash fields one per line
+
+DEL <key>                 Delete key across namespaces
+EXISTS <key>              Print 1 or 0; exit 1 if missing
+KEYS [pattern]            Print matching keys one per line
 EOF
-    exit 1
+  exit 1
 }
 
 [ $# -gt 0 ] || usage
@@ -55,201 +61,246 @@ CMD=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
 shift
 
 case "$CMD" in
-    # --- STRING COMMANDS ---
-    set)
-        [ $# -ge 2 ] || { echo "Error: SET requires <key> and <value>" >&2; exit 1; }
-        _key="$1"
-        _val="$2"
-        _path="$STRINGS_DIR/$(k2p "$_key")"
+  # --- STRING COMMANDS ---
+  set)
+    [ $# -ge 2 ] || die "SET requires <key> and <value>"
+    _key="$1"
+    _val="$2"
+    _path="$STRINGS_DIR/$(k2p "$_key")"
 
-        mkdir -p "$(dirname "$_path")" 2>/dev/null || true
-        printf '%s' "$_val" > "$_path.tmp.$$" && mv "$_path.tmp.$$" "$_path"
+    mkdir -p "$(dirname "$_path")" 2>/dev/null || true
+    printf '%s' "$_val" >"$_path.tmp.$$"
+    mv "$_path.tmp.$$" "$_path"
+    ;;
+
+  get)
+    [ $# -ge 1 ] || die "GET requires <key>"
+    _path="$STRINGS_DIR/$(k2p "$1")"
+
+    if [ -f "$_path" ]; then
+      cat "$_path"
+      echo
+    else
+      exit 1
+    fi
+    ;;
+
+  append)
+    [ $# -ge 2 ] || die "APPEND requires <key> and <value>"
+    _path="$STRINGS_DIR/$(k2p "$1")"
+
+    mkdir -p "$(dirname "$_path")" 2>/dev/null || true
+    {
+      if [ -f "$_path" ]; then
+        cat "$_path"
+      fi
+      printf '%s' "$2"
+    } >"$_path.tmp.$$"
+    mv "$_path.tmp.$$" "$_path"
+    ;;
+
+  mget)
+    [ $# -ge 1 ] || die "MGET requires at least one <key>"
+
+    for _k in "$@"; do
+      _path="$STRINGS_DIR/$(k2p "$_k")"
+
+      if [ -f "$_path" ]; then
+        cat "$_path"
+        echo
+      else
+        echo
+      fi
+    done
+    ;;
+
+  # --- SET COMMANDS ---
+  sadd)
+    [ $# -ge 2 ] || die "SADD requires <set> and at least one member"
+    _sdir="$SETS_DIR/$(k2p "$1")"
+    shift
+
+    mkdir -p "$_sdir" 2>/dev/null || true
+
+    for _m in "$@"; do
+      [ -n "$_m" ] || continue
+
+      case "$_m" in
+        */*)
+          die "set member may not contain '/'"
+          ;;
+      esac
+
+      : >"$_sdir/$_m"
+    done
+    ;;
+
+  smembers)
+    [ $# -ge 1 ] || die "SMEMBERS requires <set>"
+    _sdir="$SETS_DIR/$(k2p "$1")"
+
+    if [ -d "$_sdir" ]; then
+      (
+        cd "$_sdir"
+        find . -maxdepth 1 -type f ! -name '.*' -exec basename {} \;
+      ) | LC_ALL=C sort
+    fi
+    ;;
+
+  srem)
+    [ $# -ge 2 ] || die "SREM requires <set> and at least one member"
+    _sdir="$SETS_DIR/$(k2p "$1")"
+    shift
+
+    if [ -d "$_sdir" ]; then
+      for _m in "$@"; do
+        case "$_m" in
+          */*)
+            die "set member may not contain '/'"
+            ;;
+        esac
+        rm -f "$_sdir/$_m"
+      done
+    fi
+    ;;
+
+  sismember)
+    [ $# -ge 2 ] || die "SISMEMBER requires <set> and <member>"
+
+    case "$2" in
+      */*)
+        die "set member may not contain '/'"
         ;;
+    esac
 
-    get)
-        [ $# -ge 1 ] || { echo "Error: GET requires <key>" >&2; exit 1; }
-        _path="$STRINGS_DIR/$(k2p "$1")"
+    _target="$SETS_DIR/$(k2p "$1")/$2"
 
-        if [ -f "$_path" ]; then
-            cat "$_path"
-            [ -t 1 ] && echo
-        else
-            echo "nil"
-        fi
-        ;;
+    if [ -f "$_target" ]; then
+      echo "1"
+      exit 0
+    else
+      echo "0"
+      exit 1
+    fi
+    ;;
 
-    append)
-        [ $# -ge 2 ] || { echo "Error: APPEND requires <key> and <value>" >&2; exit 1; }
-        _path="$STRINGS_DIR/$(k2p "$1")"
+  scard)
+    [ $# -ge 1 ] || die "SCARD requires <set>"
+    _sdir="$SETS_DIR/$(k2p "$1")"
 
-        mkdir -p "$(dirname "$_path")" 2>/dev/null || true
+    if [ -d "$_sdir" ]; then
+      (
+        cd "$_sdir"
+        find . -maxdepth 1 -type f ! -name '.*' -print
+      ) | wc -l | tr -d '[:space:]'
+    else
+      echo "0"
+    fi
+    ;;
 
-        {
-            if [ -f "$_path" ]; then
-                cat "$_path"
-            fi
-            printf '%s' "$2"
-        } > "$_path.tmp.$$" && mv "$_path.tmp.$$" "$_path"
-        ;;
+  # --- HASH COMMANDS ---
+  hset)
+    [ $# -ge 3 ] || die "HSET requires <hash>, <field>, and <value>"
+    _path="$HASHES_DIR/$(k2p "$1")/$(k2p "$2")"
 
-    mget)
-        [ $# -ge 1 ] || { echo "Error: MGET requires at least one <key>" >&2; exit 1; }
+    mkdir -p "$(dirname "$_path")" 2>/dev/null || true
+    printf '%s' "$3" >"$_path.tmp.$$"
+    mv "$_path.tmp.$$" "$_path"
+    ;;
 
-        _i=1
-        for _k in "$@"; do
-            _path="$STRINGS_DIR/$(k2p "$_k")"
+  hget)
+    [ $# -ge 2 ] || die "HGET requires <hash> and <field>"
+    _path="$HASHES_DIR/$(k2p "$1")/$(k2p "$2")"
 
-            if [ -f "$_path" ]; then
-                printf "%d) %s -> \"%s\"\n" "$_i" "$_k" "$(cat "$_path")"
-            else
-                printf "%d) %s -> nil\n" "$_i" "$_k"
-            fi
+    if [ -f "$_path" ]; then
+      cat "$_path"
+      echo
+    else
+      exit 1
+    fi
+    ;;
 
-            _i=$((_i + 1))
+  hdel)
+    [ $# -ge 2 ] || die "HDEL requires <hash> and <field>"
+    _path="$HASHES_DIR/$(k2p "$1")/$(k2p "$2")"
+    rm -f "$_path"
+    ;;
+
+  hkeys)
+    [ $# -ge 1 ] || die "HKEYS requires <hash>"
+    _hdir="$HASHES_DIR/$(k2p "$1")"
+
+    if [ -d "$_hdir" ]; then
+      (
+        cd "$_hdir"
+        find . -type f ! -name '.*' -print
+      ) |
+        sed 's|^\./||' |
+        LC_ALL=C sort |
+        while IFS= read -r _f; do
+          p2k "$_f"
         done
-        ;;
+    fi
+    ;;
 
-    # --- SET COMMANDS ---
-    sadd)
-        [ $# -ge 2 ] || { echo "Error: SADD requires <set> and at least one member" >&2; exit 1; }
-        _sdir="$SETS_DIR/$(k2p "$1")"
-        shift
+  # --- KEY MANAGEMENT ---
+  del)
+    [ $# -ge 1 ] || die "DEL requires <key>"
+    _rel=$(k2p "$1")
 
-        mkdir -p "$_sdir" 2>/dev/null || true
+    rm -f "$STRINGS_DIR/$_rel"
+    rm -rf "$SETS_DIR/$_rel"
+    rm -rf "$HASHES_DIR/$_rel"
+    ;;
 
-        for _m in "$@"; do
-            [ -n "$_m" ] && : > "$_sdir/$_m"
-        done
-        ;;
+  exists)
+    [ $# -ge 1 ] || die "EXISTS requires <key>"
+    _rel=$(k2p "$1")
 
-    smembers)
-        [ $# -ge 1 ] || { echo "Error: SMEMBERS requires <set>" >&2; exit 1; }
-        _sdir="$SETS_DIR/$(k2p "$1")"
+    if [ -f "$STRINGS_DIR/$_rel" ] || [ -d "$SETS_DIR/$_rel" ] || [ -d "$HASHES_DIR/$_rel" ]; then
+      echo "1"
+      exit 0
+    else
+      echo "0"
+      exit 1
+    fi
+    ;;
 
-        if [ -d "$_sdir" ]; then
-            _members=$(cd "$_sdir" 2>/dev/null && ls -A1 2>/dev/null | LC_ALL=C sort || true)
+  keys)
+    _pattern=$(k2p "${1:-*}")
 
-            if [ -n "$_members" ]; then
-                printf '%s' "$_members" | tr '\n' ' ' | sed 's/ $//'
-                [ -t 1 ] && echo
-            fi
-        fi
-        ;;
+    {
+      if [ -d "$STRINGS_DIR" ]; then
+        (
+          cd "$STRINGS_DIR"
+          find . -type f ! -name '*.tmp.*' ! -name '.*' -path "./$_pattern" 2>/dev/null
+        )
+      fi
 
-    srem)
-        [ $# -ge 2 ] || { echo "Error: SREM requires <set> and at least one member" >&2; exit 1; }
-        _sdir="$SETS_DIR/$(k2p "$1")"
-        shift
+      if [ -d "$SETS_DIR" ]; then
+        (
+          cd "$SETS_DIR"
+          find . -mindepth 1 -maxdepth 1 -type d ! -name '.*' -path "./$_pattern" 2>/dev/null
+        )
+      fi
 
-        if [ -d "$_sdir" ]; then
-            for _m in "$@"; do
-                rm -f "$_sdir/$_m"
-            done
-        fi
-        ;;
+      if [ -d "$HASHES_DIR" ]; then
+        (
+          cd "$HASHES_DIR"
+          find . -mindepth 1 -maxdepth 1 -type d ! -name '.*' -path "./$_pattern" 2>/dev/null
+        )
+      fi
+    } |
+      sed 's|^\./||' |
+      grep -v '^$' |
+      LC_ALL=C sort -u |
+      while IFS= read -r _p; do
+        p2k "$_p"
+      done
+    ;;
 
-    sismember)
-        [ $# -ge 2 ] || { echo "Error: SISMEMBER requires <set> and <member>" >&2; exit 1; }
-        _target="$SETS_DIR/$(k2p "$1")/$2"
-
-        if [ -f "$_target" ]; then
-            echo "1"
-            exit 0
-        else
-            echo "0"
-            exit 1
-        fi
-        ;;
-
-    scard)
-        [ $# -ge 1 ] || { echo "Error: SCARD requires <set>" >&2; exit 1; }
-        _sdir="$SETS_DIR/$(k2p "$1")"
-
-        if [ -d "$_sdir" ]; then
-            cd "$_sdir" 2>/dev/null && ls -A1 2>/dev/null | wc -l | tr -d ' '
-        else
-            echo "0"
-        fi
-        ;;
-
-    # --- HASH COMMANDS ---
-    hset)
-        [ $# -ge 3 ] || { echo "Error: HSET requires <hash>, <field>, and <value>" >&2; exit 1; }
-        _path="$HASHES_DIR/$(k2p "$1")/$(k2p "$2")"
-
-        mkdir -p "$(dirname "$_path")" 2>/dev/null || true
-        printf '%s' "$3" > "$_path.tmp.$$" && mv "$_path.tmp.$$" "$_path"
-        ;;
-
-    hget)
-        [ $# -ge 2 ] || { echo "Error: HGET requires <hash> and <field>" >&2; exit 1; }
-        _path="$HASHES_DIR/$(k2p "$1")/$(k2p "$2")"
-
-        if [ -f "$_path" ]; then
-            cat "$_path"
-            [ -t 1 ] && echo
-        else
-            echo "nil"
-        fi
-        ;;
-
-    hdel)
-        [ $# -ge 2 ] || { echo "Error: HDEL requires <hash> and <field>" >&2; exit 1; }
-        _path="$HASHES_DIR/$(k2p "$1")/$(k2p "$2")"
-        rm -f "$_path"
-        ;;
-
-    hkeys)
-        [ $# -ge 1 ] || { echo "Error: HKEYS requires <hash>" >&2; exit 1; }
-        _hdir="$HASHES_DIR/$(k2p "$1")"
-
-        if [ -d "$_hdir" ]; then
-            (cd "$_hdir" && find . -type f) 2>/dev/null \
-                | sed 's|^\./||' \
-                | LC_ALL=C sort \
-                | while read -r _f; do
-                      p2k "$_f"
-                  done
-        fi
-        ;;
-
-    # --- KEY MANAGEMENT ---
-    del)
-        [ $# -ge 1 ] || { echo "Error: DEL requires <key>" >&2; exit 1; }
-        _rel=$(k2p "$1")
-
-        rm -f "$STRINGS_DIR/$_rel"
-        rm -rf "$SETS_DIR/$_rel"
-        rm -rf "$HASHES_DIR/$_rel"
-        ;;
-
-    exists)
-        [ $# -ge 1 ] || { echo "Error: EXISTS requires <key>" >&2; exit 1; }
-        _rel=$(k2p "$1")
-
-        if [ -f "$STRINGS_DIR/$_rel" ] || [ -d "$SETS_DIR/$_rel" ] || [ -d "$HASHES_DIR/$_rel" ]; then
-            echo "1"
-            exit 0
-        else
-            echo "0"
-            exit 1
-        fi
-        ;;
-
-    keys)
-        _pattern=$(k2p "${1:-*}")
-
-        {
-            [ -d "$STRINGS_DIR" ] && (cd "$STRINGS_DIR" && find . -path "./$_pattern" -type f ! -name "*.tmp.*" 2>/dev/null)
-            [ -d "$SETS_DIR" ] && (cd "$SETS_DIR" && find . -maxdepth 1 -path "./$_pattern" -type d 2>/dev/null)
-            [ -d "$HASHES_DIR" ] && (cd "$HASHES_DIR" && find . -maxdepth 1 -path "./$_pattern" -type d 2>/dev/null)
-        } | sed 's|^\./||' | grep -v '^$' | LC_ALL=C sort -u | while read -r _p; do
-            p2k "$_p"
-        done
-        ;;
-
-    *)
-        echo "Error: Unknown command '$CMD'" >&2
-        usage
-        ;;
+  *)
+    echo "kv: unknown command '$CMD'" >&2
+    usage
+    ;;
 esac

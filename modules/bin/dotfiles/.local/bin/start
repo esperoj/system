@@ -1,88 +1,53 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/sh
+# start - enable and start user runit services
+set -eu
 
-cd "$HOME"
+SVDEF="$HOME/.config/sv"
+SVDIR="$HOME/.service"
 
 usage() {
-    echo "usage: start <home|caddy|esperoj|esperoj_storage|ssh_server|wireproxy>..." >&2
-    exit 1
+  echo "usage: start <svr-home|wireproxy>..." >&2
+  exit 1
 }
 
 [ $# -ge 1 ] || usage
 
-mkdir -p "$HOME/.sockets"
-
-require_my_uuid() {
-    if [ -z "${MY_UUID:-}" ]; then
-        echo "start: MY_UUID must be set for service '$1'" >&2
-        exit 1
-    fi
+valid_service() {
+  case "$1" in
+    srv-home|wireproxy)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }
 
-start_tmux_session() {
-    name="$1"
-    cmd="$2"
+mkdir -p "$SVDIR"
 
-    if tmux has-session -t "$name" 2>/dev/null; then
-        echo "start: tmux session '$name' already running." >&2
-        return 0
-    fi
+# Ensure user runsvdir is running
+if ! command -v runit-boot >/dev/null 2>&1; then
+  echo "start: runit-boot not found in PATH" >&2
+  exit 1
+fi
 
-    tmux new-session -d -s "$name" "$cmd"
-}
+runit-boot
 
 for service in "$@"; do
-    case "$service" in
-        home)
-            require_my_uuid "$service"
-            cmd="export RCLONE_PASS='${MY_UUID}'; mkdir -p '${HOME}/.sockets'; rclone serve webdav --addr unix://${HOME}/.sockets/home.sock --dir-cache-time 0s --poll-interval 0 --user esperoj -L ."
-            start_tmux_session home "$cmd"
-            ;;
+  if ! valid_service "$service"; then
+    echo "start: unknown service: $service" >&2
+    exit 1
+  fi
 
-        caddy)
-            if ! command -v caddy >/dev/null 2>&1; then
-                echo "start: caddy not found" >&2
-                exit 1
-            fi
-            caddy start
-            ;;
+  if [ ! -d "$SVDEF/$service" ]; then
+    echo "start: missing service definition: $SVDEF/$service" >&2
+    exit 1
+  fi
 
-        esperoj)
-            start_tmux_session esperoj "esperoj start"
-            ;;
+  if [ ! -e "$SVDIR/$service" ]; then
+    ln -s "$SVDEF/$service" "$SVDIR/$service"
+  fi
 
-        esperoj_storage)
-            require_my_uuid "$service"
-            cmd="export RCLONE_AUTH_KEY='esperoj,${MY_UUID}'; mkdir -p '${HOME}/.sockets'; rclone serve s3 --addr unix://${HOME}/.sockets/esperoj-storage.sock --dir-cache-time 0s --poll-interval 0 --vfs-cache-mode writes esperoj:"
-            start_tmux_session esperoj_storage "$cmd"
-            ;;
-
-        ssh_server)
-            if ! command -v service >/dev/null 2>&1; then
-                echo "start: service command not found" >&2
-                exit 1
-            fi
-
-            if [ "$(id -u)" -eq 0 ]; then
-                service ssh start
-            elif command -v sudo >/dev/null 2>&1; then
-                sudo service ssh start
-            else
-                echo "start: need root or sudo to start ssh service" >&2
-                exit 1
-            fi
-
-            echo "Connecting to Serveo for forwarding..."
-            ssh -f -N serveo-ssh-tunnel
-            ;;
-
-        wireproxy)
-            start_tmux_session wireproxy "cd '${HOME}/data' && wireproxy -c wireproxy.conf"
-            ;;
-
-        *)
-            echo "start: unknown service: $service" >&2
-            exit 1
-            ;;
-    esac
+  sv up "$SVDIR/$service"
+  sv status "$SVDIR/$service" || true
 done

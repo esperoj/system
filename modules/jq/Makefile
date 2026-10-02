@@ -2,5 +2,5 @@
 jq: sys-pkgs
 	"$(MODULES_DIR)/jq/install"
 jq-cfg: sys-pkgs-cfg
-	@kv sadd debian-pkgs jq
+	@kv sadd common-pkgs jq
 

@@ -2,5 +2,4 @@
 rclone: sys-pkgs
 	"$(MODULES_DIR)/rclone/install"
 rclone-cfg: sys-pkgs-cfg
-	@true
-
+	@kv sadd termux-pkgs rclone

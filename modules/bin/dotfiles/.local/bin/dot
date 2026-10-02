@@ -55,15 +55,71 @@ execute_apply() {
 execute_remove() {
     "$STOW_BIN" ${STOW_OPTS} -D -d "$MODULES_DIR" -t "$TARGET" "$@"
 }
+backup_existing_targets() {
+  _stamp=$(date +%s)
 
+  for _mod in "$@"; do
+    _moddir="$MODULES_DIR/$_mod"
+    [ -d "$_moddir" ] || continue
+
+    # 1. File conflicts:
+    #    Module wants a file, but target exists as a non-symlink.
+    (
+      cd "$_moddir"
+      find . -type f \
+        ! -path '*/.git/*' \
+        ! -name '*.swp' \
+        ! -name '*~' \
+        -print
+    ) | while IFS= read -r _rel; do
+      _rel=${_rel#./}
+      _target="$TARGET/$_rel"
+
+      if [ -e "$_target" ] && [ ! -L "$_target" ]; then
+        log "Backing up existing $_target -> $_target.bak.$_stamp"
+        mv "$_target" "$_target.bak.$_stamp"
+      fi
+    done
+
+    # 2. Directory conflicts:
+    #    Module wants a directory, but target exists as a non-directory.
+    (
+      cd "$_moddir"
+      find . -mindepth 1 -type d \
+        ! -path '*/.git/*' \
+        -print
+    ) | while IFS= read -r _rel; do
+      _rel=${_rel#./}
+      _target="$TARGET/$_rel"
+
+      if [ -e "$_target" ] && [ ! -d "$_target" ] && [ ! -L "$_target" ]; then
+        log "Backing up existing non-directory $_target -> $_target.bak.$_stamp"
+        mv "$_target" "$_target.bak.$_stamp"
+      fi
+    done
+  done
+}
 # --- Command Implementations ---
 cmd_apply() {
-    [ $# -gt 0 ] || die "apply requires at least one module name."
+  [ $# -gt 0 ] || die "apply requires at least one module name."
 
-    log "Applying [$*] to [$TARGET]"
-    run_locked execute_apply "$@"
+  log "Applying [$*] to [$TARGET]"
+
+  backup_existing_targets "$@"
+
+  # Prune first to ensure clean symlinks if target was modified
+  "$STOW_BIN" -D -d "$MODULES_DIR" -t "$TARGET" "$@" 2>/dev/null || true
+
+  # Restow
+  "$STOW_BIN" \
+    ${STOW_OPTS} \
+    -d "$MODULES_DIR" \
+    -t "$TARGET" \
+    --ignore='^\.module-' \
+    --ignore='\.swp$' \
+    --ignore='\.git' \
+    "$@"
 }
-
 cmd_remove() {
     [ $# -gt 0 ] || die "remove requires at least one module name."
 

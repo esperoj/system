@@ -1,0 +1,10 @@
+#!/bin/sh
+exec 2>&1
+
+mkdir -p "$HOME/log/runit"
+exec >>"$HOME/log/runit/wireproxy.log" 2>&1
+
+# Keep cd if WGConfig is relative to ~/data
+cd "$HOME/.config/wireproxy/" || exit 1
+
+exec wireproxy -c "$HOME/.config/wireproxy/config.conf"

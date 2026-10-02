@@ -1,0 +1,24 @@
+#!/bin/sh
+# runit-boot - start user-level runsvdir if not already running
+set -eu
+
+SVDIR="$HOME/.service"
+STATE_DIR="$HOME/.local/state/runit"
+PID_FILE="$STATE_DIR/runsvdir.pid"
+LOG_FILE="$STATE_DIR/runsvdir.log"
+
+mkdir -p "$SVDIR" "$STATE_DIR"
+
+if [ -f "$PID_FILE" ]; then
+  pid=$(cat "$PID_FILE" 2>/dev/null || true)
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    echo "✓ runsvdir already running for $SVDIR"
+    exit 0
+  fi
+fi
+
+echo ":: Starting user runsvdir for $SVDIR"
+nohup runsvdir "$SVDIR" >>"$LOG_FILE" 2>&1 &
+echo $! >"$PID_FILE"
+
+echo "✓ runsvdir started, pid $(cat "$PID_FILE")"

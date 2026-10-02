@@ -2,5 +2,4 @@
 restic: sys-pkgs
 	"$(MODULES_DIR)/restic/install"
 restic-cfg: sys-pkgs-cfg
-	@true
-
+	@kv sadd termux-pkgs restic
