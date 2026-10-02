@@ -65,8 +65,7 @@ fmt:
 review:
 	@if command -v aider >/dev/null 2>&1; then \
 		echo ":: Running Aider review on latest commit..."; \
-		aider \
-			--read . \
+		aider --model gemini/gemini-flash-latest \
 			--message "Review the latest commit against the design principles, constraints, and architecture outlined in README.md and the codebase structure. \
 			\n\nLatest Commit Diff:\n$$(git show HEAD)\n\n \
 			Identify any bugs, architectural deviations, or unnecessary complexity."; \
