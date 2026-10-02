@@ -96,12 +96,12 @@ resync: info
 	mkdir -p $(BACKUP_DIR)
 	rclone bisync $(BACKUP_DIR) $(BACKUPS_RCLONE_REMOTE) --resync --verbose --fast-list
 
-pre-snap: info init-restic
+pre-snap: info
 	@mkdir -p $(BACKUP_DIR)
 	@echo "--> Taking pre-sync restic snapshot of BACKUPS folder..."
 	restic backup $(BACKUP_DIR) --verbose --exclude-caches --tag pre-sync
 
-snap: info init-restic
+snap: info
 	@mkdir -p $(BACKUP_DIR)
 	@echo "--> Taking post-sync restic snapshot of BACKUPS folder..."
 	restic backup $(BACKUP_DIR) --verbose --exclude-caches --tag post-sync
