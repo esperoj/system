@@ -1,10 +1,3 @@
-# --- 1. THE GUARD (Source Only Once) ---
-if [ -n "${_PROFILE_SOURCED:-}" ]; then
-    return 0
-fi
-export _PROFILE_SOURCED=1
-
-# --- 2. PATH & LIBRARY CONFIGURATION ---
 case ":$PATH:" in
     *":$HOME/.local/bin:"*) ;;
     *) export PATH="$HOME/.local/bin:$PATH" ;;
@@ -15,8 +8,23 @@ case ":${LD_LIBRARY_PATH:-}:" in
     *) export LD_LIBRARY_PATH="$HOME/.local/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ;;
 esac
 
-# --- 3. PLATFORM-SPECIFIC SETTINGS ---
-_HOSTNAME=$(hostname 2>/dev/null || uname -n)
+load_all_envs() {
+    _env_dir="$HOME/.config/env"
+    if [ -f "$_env_dir/base.env" ]; then
+        set -a; . "$_env_dir/base.env"; set +a
+    fi
+    if [ -d "$_env_dir" ]; then
+        for _f in "$_env_dir"/*.env; do
+            [ -f "$_f" ] || continue
+            [ "$_f" = "$_env_dir/base.env" ] && continue
+            set -a; . "$_f"; set +a
+        done
+    fi
+}
+
+load_all_envs
+
+HOSTNAME=$(hostname 2>/dev/null || uname -n)
 
 if [ -n "${TERMUX_VERSION:-}" ]; then
     export TMPDIR="${TMPDIR:-/data/data/com.termux/files/usr/tmp}"
@@ -36,7 +44,6 @@ elif [ "$MACHINE_TYPE" = "pubnix" ]; then
     fi
 fi
 
-# BSD Python Paths (if running on BSD pubnix)
 if [ "$_HOSTNAME" = "bsd.tilde.team" ]; then
     for _py_path in "${HOME}"/.local/lib/python3.*/site-packages; do
         if [ -d "$_py_path" ]; then
@@ -45,22 +52,5 @@ if [ "$_HOSTNAME" = "bsd.tilde.team" ]; then
         fi
     done
 fi
-
-# --- 4. LOAD ENVIRONMENT FRAGMENTS ---
-load_all_envs() {
-    _env_dir="$HOME/.config/env"
-    if [ -f "$_env_dir/base.env" ]; then
-        set -a; . "$_env_dir/base.env"; set +a
-    fi
-    if [ -d "$_env_dir" ]; then
-        for _f in "$_env_dir"/*.env; do
-            [ -f "$_f" ] || continue
-            [ "$_f" = "$_env_dir/base.env" ] && continue
-            set -a; . "$_f"; set +a
-        done
-    fi
-}
-
-load_all_envs
 
 unset _HOSTNAME _py_path _env_dir _f _mod

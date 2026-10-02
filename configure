@@ -1,5 +1,7 @@
 #!/bin/sh
 set -e
+MAKE_VERSION=$(make --version | head -n 1 | grep -Eo '[0-9]+\.[0-9]+' | head -n 1)
+echo "Found $MAKE_VERSION"
 
 if [ $# -eq 0 ]; then
     echo "Usage: $0 <target1> [target2...]"
