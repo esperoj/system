@@ -55,6 +55,7 @@ define do_bisync
 	mkdir -p "$(1)"
 	echo "--> Executing delta sync for $(1)..."
 	rclone bisync "$(1)" "$(2)" \
+		-v \
 		--resilient \
 		--recover \
 		--conflict-resolve newer \
