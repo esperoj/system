@@ -39,9 +39,7 @@ WORKDIR /home/esperoj/projects/system
 
 RUN rm -rf ~/.bashrc ~/.profile \
     && ./configure docker-base \
-    && make docker-base \
-    && sudo apt-get clean \
-    && sudo rm -rf /var/lib/apt/lists/*
+    && make docker-base
 
 WORKDIR /home/esperoj
 
