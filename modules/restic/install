@@ -3,9 +3,9 @@ set -eu
 
 . "${LIB_DIR}/sh/os.sh"
 
-if ! command -v restic > /dev/null 2>&1; then
-    echo "Installing restic..."
-    fetch-bin "gh:restic/restic" "linux_${ARCH}\.bz2$" "restic" "$HOME/.local/bin/restic"
+if ! command -v restic >/dev/null 2>&1; then
+	echo "Installing restic..."
+	fetch-bin "gh:restic/restic" "linux_${ARCH}\.bz2$" "restic" "$HOME/.local/bin/restic"
 else
-    echo "✓ restic is already installed."
+	echo "✓ restic is already installed."
 fi

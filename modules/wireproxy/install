@@ -3,9 +3,9 @@ set -eu
 
 . "${LIB_DIR}/sh/os.sh"
 
-if ! command -v wireproxy > /dev/null 2>&1; then
-    echo "Installing wireproxy..."
-    fetch-bin "gh:whyvl/wireproxy" "wireproxy_linux_${ARCH}\.tar\.gz$" "wireproxy" "$HOME/.local/bin/wireproxy"
+if ! command -v wireproxy >/dev/null 2>&1; then
+	echo "Installing wireproxy..."
+	fetch-bin "gh:whyvl/wireproxy" "wireproxy_linux_${ARCH}\.tar\.gz$" "wireproxy" "$HOME/.local/bin/wireproxy"
 else
-    echo "✓ wireproxy is already installed."
+	echo "✓ wireproxy is already installed."
 fi

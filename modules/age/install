@@ -3,9 +3,9 @@ set -eu
 
 . "${LIB_DIR}/sh/os.sh"
 
-if ! command -v age > /dev/null 2>&1; then
-    echo "Installing age..."
-    fetch-bin "https://dl.filippo.io/age/latest?for=${OS}/${ARCH}" "" "age" "$HOME/.local/bin/age"
+if ! command -v age >/dev/null 2>&1; then
+	echo "Installing age..."
+	fetch-bin "https://dl.filippo.io/age/latest?for=${OS}/${ARCH}" "" "age" "$HOME/.local/bin/age"
 else
-    echo "✓ age is already installed."
+	echo "✓ age is already installed."
 fi

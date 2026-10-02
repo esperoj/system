@@ -3,9 +3,9 @@ set -eu
 
 . "${LIB_DIR}/sh/os.sh"
 
-if ! command -v rclone > /dev/null 2>&1; then
-    echo "Installing rclone..."
-    fetch-bin "gh:rclone/rclone" "linux-${ARCH}\.zip$" "rclone" "$HOME/.local/bin/rclone"
+if ! command -v rclone >/dev/null 2>&1; then
+	echo "Installing rclone..."
+	fetch-bin "gh:rclone/rclone" "linux-${ARCH}\.zip$" "rclone" "$HOME/.local/bin/rclone"
 else
-    echo "✓ rclone is already installed."
+	echo "✓ rclone is already installed."
 fi

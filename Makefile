@@ -2,7 +2,6 @@
 .SHELLFLAGS = -e -c
 MAKEFLAGS   += -j
 SHELL       := /bin/sh
-
 .DEFAULT_GOAL := help
 .DELETE_ON_ERROR:
 
@@ -12,12 +11,15 @@ LIB_DIR     := $(MODULES_DIR)/lib/dotfiles/.local/lib
 PATH        := $(BIN_DIR):$(HOME)/.local/bin:$(PATH)
 KV_STORE    := $(CURDIR)/.kv-store
 LC_ALL      := C
-
 export PATH LIB_DIR KV_STORE LC_ALL
 
 -include $(MODULES_DIR)/*/Makefile
 
-.PHONY: help lint
+# --- Shared Shell Script Finder (DRY) ---
+# Safely finds all shell scripts, entrypoints, and library files
+FIND_SHELL = find configure modules -type f \( -name '*.sh' -o -name 'configure' -o -name 'install' -o -name 'setup' -o -path '*/.local/bin/*' -o -path '*/.local/lib/sh/*' \) -print0
+
+.PHONY: help lint fmt
 
 help:
 	@echo "Usage: ./configure <target> && make <target>"
@@ -30,36 +32,31 @@ help:
 	@echo ""
 	@echo "Utility targets:"
 	@echo "  help         Show this help"
-	@echo "  lint         Run shellcheck/shfmt/static checks"
+	@echo "  lint         Run shellcheck and shfmt checks (read-only)"
+	@echo "  fmt          Format shell scripts in-place using shfmt"
 
 lint:
 	@rc=0; \
 	if command -v shellcheck >/dev/null 2>&1; then \
-		find configure modules \
-			\( \
-				\( -type f -name '*.sh' \) -o \
-				\( -type f -name configure \) -o \
-				\( -type f -name install \) -o \
-				\( -type f -name setup \) -o \
-				\( -type f -path '*/.local/bin/*' \) -o \
-				\( -type f -path '*/.local/lib/sh/*' \) \
-			\) \
-			-print0 | xargs -0 -r shellcheck --severity=error || rc=1; \
+		echo ":: Running shellcheck..."; \
+		$(FIND_SHELL) | xargs -0 -r shellcheck --severity=error || rc=1; \
 	else \
 		echo "lint: shellcheck not found; skipping"; \
 	fi; \
 	if command -v shfmt >/dev/null 2>&1; then \
-		find configure modules \
-			\( \
-				\( -type f -name '*.sh' \) -o \
-				\( -type f -name configure \) -o \
-				\( -type f -name install \) -o \
-				\( -type f -name setup \) -o \
-				\( -type f -path '*/.local/bin/*' \) -o \
-				\( -type f -path '*/.local/lib/sh/*' \) \
-			\) \
-			-print0 | xargs -0 -r shfmt -d || rc=1; \
+		echo ":: Running shfmt check..."; \
+		$(FIND_SHELL) | xargs -0 -r shfmt -d || rc=1; \
 	else \
 		echo "lint: shfmt not found; skipping"; \
 	fi; \
 	exit $$rc
+
+fmt:
+	@if command -v shfmt >/dev/null 2>&1; then \
+		echo ":: Formatting shell scripts with shfmt..."; \
+		$(FIND_SHELL) | xargs -0 -r shfmt -w; \
+		echo "✓ Formatting complete."; \
+	else \
+		echo "fmt: shfmt not found; please install shfmt to format code."; \
+		exit 1; \
+	fi

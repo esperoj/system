@@ -3,12 +3,12 @@
 set -eu
 
 usage() {
-    cat <<USAGE >&2
+	cat <<USAGE >&2
 Usage:
   backup create <source-dir> <output-file.tar.gz.age> [age-recipient]
   backup restore <input-file.tar.gz.age> <destination-dir> [age-identity-file]
 USAGE
-    exit 1
+	exit 1
 }
 
 [ $# -ge 2 ] || usage
@@ -17,41 +17,53 @@ ACTION="$1"
 shift
 
 case "$ACTION" in
-    create)
-        SRC="${1:-}"
-        DEST="${2:-}"
-        RECIPIENT="${3:-${AGE_RECIPIENTS:-}}"
+create)
+	SRC="${1:-}"
+	DEST="${2:-}"
+	RECIPIENT="${3:-${AGE_RECIPIENTS:-}}"
 
-        [ -d "$SRC" ] || { echo "Error: Source directory '$SRC' does not exist." >&2; exit 1; }
-        [ -n "$DEST" ] || usage
+	[ -d "$SRC" ] || {
+		echo "Error: Source directory '$SRC' does not exist." >&2
+		exit 1
+	}
+	[ -n "$DEST" ] || usage
 
-        if [ -z "$RECIPIENT" ] && [ -f "$HOME/.config/age/recipients.txt" ]; then
-            RECIPIENT=$(grep -v '^#' "$HOME/.config/age/recipients.txt" | head -n 1)
-        fi
-        [ -n "$RECIPIENT" ] || { echo "Error: No Age recipient key provided or found." >&2; exit 1; }
+	if [ -z "$RECIPIENT" ] && [ -f "$HOME/.config/age/recipients.txt" ]; then
+		RECIPIENT=$(grep -v '^#' "$HOME/.config/age/recipients.txt" | head -n 1)
+	fi
+	[ -n "$RECIPIENT" ] || {
+		echo "Error: No Age recipient key provided or found." >&2
+		exit 1
+	}
 
-        mkdir -p "$(dirname "$DEST")"
-        echo ":: Archiving and encrypting $SRC -> $DEST..."
-        tar -C "$(dirname "$SRC")" -czf - "$(basename "$SRC")" | age -r "$RECIPIENT" -o "$DEST"
-        echo "✓ Successfully created encrypted archive: $DEST"
-        ;;
+	mkdir -p "$(dirname "$DEST")"
+	echo ":: Archiving and encrypting $SRC -> $DEST..."
+	tar -C "$(dirname "$SRC")" -czf - "$(basename "$SRC")" | age -r "$RECIPIENT" -o "$DEST"
+	echo "✓ Successfully created encrypted archive: $DEST"
+	;;
 
-    restore)
-        SRC="${1:-}"
-        DEST="${2:-}"
-        IDENTITY="${3:-${AGE_IDENTITIES_FILE:-$HOME/.config/age/keys.txt}}"
+restore)
+	SRC="${1:-}"
+	DEST="${2:-}"
+	IDENTITY="${3:-${AGE_IDENTITIES_FILE:-$HOME/.config/age/keys.txt}}"
 
-        [ -f "$SRC" ] || { echo "Error: Encrypted archive '$SRC' not found." >&2; exit 1; }
-        [ -n "$DEST" ] || usage
-        [ -f "$IDENTITY" ] || { echo "Error: Age identity key '$IDENTITY' not found." >&2; exit 1; }
+	[ -f "$SRC" ] || {
+		echo "Error: Encrypted archive '$SRC' not found." >&2
+		exit 1
+	}
+	[ -n "$DEST" ] || usage
+	[ -f "$IDENTITY" ] || {
+		echo "Error: Age identity key '$IDENTITY' not found." >&2
+		exit 1
+	}
 
-        mkdir -p "$DEST"
-        echo ":: Decrypting and unpacking $SRC -> $DEST..."
-        age -d -i "$IDENTITY" "$SRC" | tar -C "$DEST" --strip-components=1 -xzf -
-        echo "✓ Successfully restored archive into: $DEST"
-        ;;
+	mkdir -p "$DEST"
+	echo ":: Decrypting and unpacking $SRC -> $DEST..."
+	age -d -i "$IDENTITY" "$SRC" | tar -C "$DEST" --strip-components=1 -xzf -
+	echo "✓ Successfully restored archive into: $DEST"
+	;;
 
-    *)
-        usage
-        ;;
+*)
+	usage
+	;;
 esac

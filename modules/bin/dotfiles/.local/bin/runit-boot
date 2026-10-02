@@ -10,11 +10,11 @@ LOG_FILE="$STATE_DIR/runsvdir.log"
 mkdir -p "$SVDIR" "$STATE_DIR"
 
 if [ -f "$PID_FILE" ]; then
-  pid=$(cat "$PID_FILE" 2>/dev/null || true)
-  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-    echo "✓ runsvdir already running for $SVDIR"
-    exit 0
-  fi
+	pid=$(cat "$PID_FILE" 2>/dev/null || true)
+	if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+		echo "✓ runsvdir already running for $SVDIR"
+		exit 0
+	fi
 fi
 
 echo ":: Starting user runsvdir for $SVDIR"

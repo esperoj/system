@@ -6,48 +6,48 @@ SVDEF="$HOME/.config/sv"
 SVDIR="$HOME/.service"
 
 usage() {
-  echo "usage: start <svr-home|wireproxy>..." >&2
-  exit 1
+	echo "usage: start <svr-home|wireproxy>..." >&2
+	exit 1
 }
 
 [ $# -ge 1 ] || usage
 
 valid_service() {
-  case "$1" in
-    srv-home|wireproxy)
-      return 0
-      ;;
-    *)
-      return 1
-      ;;
-  esac
+	case "$1" in
+	srv-home | wireproxy)
+		return 0
+		;;
+	*)
+		return 1
+		;;
+	esac
 }
 
 mkdir -p "$SVDIR"
 
 # Ensure user runsvdir is running
 if ! command -v runit-boot >/dev/null 2>&1; then
-  echo "start: runit-boot not found in PATH" >&2
-  exit 1
+	echo "start: runit-boot not found in PATH" >&2
+	exit 1
 fi
 
 runit-boot
 
 for service in "$@"; do
-  if ! valid_service "$service"; then
-    echo "start: unknown service: $service" >&2
-    exit 1
-  fi
+	if ! valid_service "$service"; then
+		echo "start: unknown service: $service" >&2
+		exit 1
+	fi
 
-  if [ ! -d "$SVDEF/$service" ]; then
-    echo "start: missing service definition: $SVDEF/$service" >&2
-    exit 1
-  fi
+	if [ ! -d "$SVDEF/$service" ]; then
+		echo "start: missing service definition: $SVDEF/$service" >&2
+		exit 1
+	fi
 
-  if [ ! -e "$SVDIR/$service" ]; then
-    ln -s "$SVDEF/$service" "$SVDIR/$service"
-  fi
+	if [ ! -e "$SVDIR/$service" ]; then
+		ln -s "$SVDEF/$service" "$SVDIR/$service"
+	fi
 
-  sv up "$SVDIR/$service"
-  sv status "$SVDIR/$service" || true
+	sv up "$SVDIR/$service"
+	sv status "$SVDIR/$service" || true
 done

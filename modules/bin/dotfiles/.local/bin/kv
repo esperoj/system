@@ -20,7 +20,7 @@ mkdir -p "$STRINGS_DIR" "$SETS_DIR" "$HASHES_DIR" 2>/dev/null || true
 # CRITICAL FIX: Validate keys to prevent path traversal (e.g. ../../etc/passwd)
 k2p() {
 	case "$1" in
-		*..*|*/*) die "Invalid key: cannot contain '..' or '/'" ;;
+	*..* | */*) die "Invalid key: cannot contain '..' or '/'" ;;
 	esac
 	printf '%s' "$1" | tr ':' '/'
 }
@@ -62,205 +62,205 @@ CMD=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
 shift
 
 case "$CMD" in
-	# --- STRING COMMANDS ---
-	set)
-		[ $# -ge 2 ] || die "SET requires <key> and <value>"
-		_key="$1"
-		_val="$2"
-		_path="$STRINGS_DIR/$(k2p "$_key")"
-		mkdir -p "$(dirname "$_path")" 2>/dev/null || true
-		printf '%s' "$_val" >"$_path.tmp.$$"
-		mv "$_path.tmp.$$" "$_path"
-		;;
-	get)
-		[ $# -ge 1 ] || die "GET requires <key>"
-		_path="$STRINGS_DIR/$(k2p "$1")"
+# --- STRING COMMANDS ---
+set)
+	[ $# -ge 2 ] || die "SET requires <key> and <value>"
+	_key="$1"
+	_val="$2"
+	_path="$STRINGS_DIR/$(k2p "$_key")"
+	mkdir -p "$(dirname "$_path")" 2>/dev/null || true
+	printf '%s' "$_val" >"$_path.tmp.$$"
+	mv "$_path.tmp.$$" "$_path"
+	;;
+get)
+	[ $# -ge 1 ] || die "GET requires <key>"
+	_path="$STRINGS_DIR/$(k2p "$1")"
+	if [ -f "$_path" ]; then
+		cat "$_path"
+		echo
+	else
+		exit 1
+	fi
+	;;
+append)
+	[ $# -ge 2 ] || die "APPEND requires <key> and <value>"
+	_path="$STRINGS_DIR/$(k2p "$1")"
+	mkdir -p "$(dirname "$_path")" 2>/dev/null || true
+	{
+		if [ -f "$_path" ]; then
+			cat "$_path"
+		fi
+		printf '%s' "$2"
+	} >"$_path.tmp.$$"
+	mv "$_path.tmp.$$" "$_path"
+	;;
+mget)
+	[ $# -ge 1 ] || die "MGET requires at least one <key>"
+	for _k in "$@"; do
+		_path="$STRINGS_DIR/$(k2p "$_k")"
 		if [ -f "$_path" ]; then
 			cat "$_path"
 			echo
 		else
-			exit 1
+			echo
 		fi
-		;;
-	append)
-		[ $# -ge 2 ] || die "APPEND requires <key> and <value>"
-		_path="$STRINGS_DIR/$(k2p "$1")"
-		mkdir -p "$(dirname "$_path")" 2>/dev/null || true
-		{
-			if [ -f "$_path" ]; then
-				cat "$_path"
-			fi
-			printf '%s' "$2"
-		} >"$_path.tmp.$$"
-		mv "$_path.tmp.$$" "$_path"
-		;;
-	mget)
-		[ $# -ge 1 ] || die "MGET requires at least one <key>"
-		for _k in "$@"; do
-			_path="$STRINGS_DIR/$(k2p "$_k")"
-			if [ -f "$_path" ]; then
-				cat "$_path"
-				echo
-			else
-				echo
-			fi
-		done
-		;;
+	done
+	;;
 
-	# --- SET COMMANDS ---
-	sadd)
-		[ $# -ge 2 ] || die "SADD requires <set> and at least one member"
-		_sdir="$SETS_DIR/$(k2p "$1")"
-		shift
-		mkdir -p "$_sdir" 2>/dev/null || true
-		for _m in "$@"; do
-			[ -n "$_m" ] || continue
-			# CRITICAL FIX: Validate set members to prevent path traversal
-			case "$_m" in
-				*..*|*/*) die "set member may not contain '..' or '/'" ;;
-			esac
-			: >"$_sdir/$_m"
-		done
-		;;
-	smembers)
-		[ $# -ge 1 ] || die "SMEMBERS requires <set>"
-		_sdir="$SETS_DIR/$(k2p "$1")"
-		if [ -d "$_sdir" ]; then
-			(
-				cd "$_sdir"
-				find . -maxdepth 1 -type f ! -name '.*' -exec basename {} \;
-			) | LC_ALL=C sort
-		fi
-		;;
-	srem)
-		[ $# -ge 2 ] || die "SREM requires <set> and at least one member"
-		_sdir="$SETS_DIR/$(k2p "$1")"
-		shift
-		if [ -d "$_sdir" ]; then
-			for _m in "$@"; do
-				case "$_m" in
-					*..*|*/*) die "set member may not contain '..' or '/'" ;;
-				esac
-				rm -f "$_sdir/$_m"
-			done
-		fi
-		;;
-	sismember)
-		[ $# -ge 2 ] || die "SISMEMBER requires <set> and <member>"
-		case "$2" in
-			*..*|*/*) die "set member may not contain '..' or '/'" ;;
+# --- SET COMMANDS ---
+sadd)
+	[ $# -ge 2 ] || die "SADD requires <set> and at least one member"
+	_sdir="$SETS_DIR/$(k2p "$1")"
+	shift
+	mkdir -p "$_sdir" 2>/dev/null || true
+	for _m in "$@"; do
+		[ -n "$_m" ] || continue
+		# CRITICAL FIX: Validate set members to prevent path traversal
+		case "$_m" in
+		*..* | */*) die "set member may not contain '..' or '/'" ;;
 		esac
-		_target="$SETS_DIR/$(k2p "$1")/$2"
-		if [ -f "$_target" ]; then
-			echo "1"
-			exit 0
-		else
-			echo "0"
-			exit 1
-		fi
-		;;
-	scard)
-		[ $# -ge 1 ] || die "SCARD requires <set>"
-		_sdir="$SETS_DIR/$(k2p "$1")"
-		if [ -d "$_sdir" ]; then
-			(
-				cd "$_sdir"
-				find . -maxdepth 1 -type f ! -name '.*' -print
-			) | wc -l | tr -d '[:space:]'
-		else
-			echo "0"
-		fi
-		;;
+		: >"$_sdir/$_m"
+	done
+	;;
+smembers)
+	[ $# -ge 1 ] || die "SMEMBERS requires <set>"
+	_sdir="$SETS_DIR/$(k2p "$1")"
+	if [ -d "$_sdir" ]; then
+		(
+			cd "$_sdir"
+			find . -maxdepth 1 -type f ! -name '.*' -exec basename {} \;
+		) | LC_ALL=C sort
+	fi
+	;;
+srem)
+	[ $# -ge 2 ] || die "SREM requires <set> and at least one member"
+	_sdir="$SETS_DIR/$(k2p "$1")"
+	shift
+	if [ -d "$_sdir" ]; then
+		for _m in "$@"; do
+			case "$_m" in
+			*..* | */*) die "set member may not contain '..' or '/'" ;;
+			esac
+			rm -f "$_sdir/$_m"
+		done
+	fi
+	;;
+sismember)
+	[ $# -ge 2 ] || die "SISMEMBER requires <set> and <member>"
+	case "$2" in
+	*..* | */*) die "set member may not contain '..' or '/'" ;;
+	esac
+	_target="$SETS_DIR/$(k2p "$1")/$2"
+	if [ -f "$_target" ]; then
+		echo "1"
+		exit 0
+	else
+		echo "0"
+		exit 1
+	fi
+	;;
+scard)
+	[ $# -ge 1 ] || die "SCARD requires <set>"
+	_sdir="$SETS_DIR/$(k2p "$1")"
+	if [ -d "$_sdir" ]; then
+		(
+			cd "$_sdir"
+			find . -maxdepth 1 -type f ! -name '.*' -print
+		) | wc -l | tr -d '[:space:]'
+	else
+		echo "0"
+	fi
+	;;
 
-	# --- HASH COMMANDS ---
-	hset)
-		[ $# -ge 3 ] || die "HSET requires <hash>, <field>, and <value>"
-		_path="$HASHES_DIR/$(k2p "$1")/$(k2p "$2")"
-		mkdir -p "$(dirname "$_path")" 2>/dev/null || true
-		printf '%s' "$3" >"$_path.tmp.$$"
-		mv "$_path.tmp.$$" "$_path"
-		;;
-	hget)
-		[ $# -ge 2 ] || die "HGET requires <hash> and <field>"
-		_path="$HASHES_DIR/$(k2p "$1")/$(k2p "$2")"
-		if [ -f "$_path" ]; then
-			cat "$_path"
-			echo
-		else
-			exit 1
-		fi
-		;;
-	hdel)
-		[ $# -ge 2 ] || die "HDEL requires <hash> and <field>"
-		_path="$HASHES_DIR/$(k2p "$1")/$(k2p "$2")"
-		rm -f "$_path"
-		;;
-	hkeys)
-		[ $# -ge 1 ] || die "HKEYS requires <hash>"
-		_hdir="$HASHES_DIR/$(k2p "$1")"
-		if [ -d "$_hdir" ]; then
-			(
-				cd "$_hdir"
-				find . -type f ! -name '.*' -print
-			) |
+# --- HASH COMMANDS ---
+hset)
+	[ $# -ge 3 ] || die "HSET requires <hash>, <field>, and <value>"
+	_path="$HASHES_DIR/$(k2p "$1")/$(k2p "$2")"
+	mkdir -p "$(dirname "$_path")" 2>/dev/null || true
+	printf '%s' "$3" >"$_path.tmp.$$"
+	mv "$_path.tmp.$$" "$_path"
+	;;
+hget)
+	[ $# -ge 2 ] || die "HGET requires <hash> and <field>"
+	_path="$HASHES_DIR/$(k2p "$1")/$(k2p "$2")"
+	if [ -f "$_path" ]; then
+		cat "$_path"
+		echo
+	else
+		exit 1
+	fi
+	;;
+hdel)
+	[ $# -ge 2 ] || die "HDEL requires <hash> and <field>"
+	_path="$HASHES_DIR/$(k2p "$1")/$(k2p "$2")"
+	rm -f "$_path"
+	;;
+hkeys)
+	[ $# -ge 1 ] || die "HKEYS requires <hash>"
+	_hdir="$HASHES_DIR/$(k2p "$1")"
+	if [ -d "$_hdir" ]; then
+		(
+			cd "$_hdir"
+			find . -type f ! -name '.*' -print
+		) |
 			sed 's|^\./||' |
 			LC_ALL=C sort |
 			while IFS= read -r _f; do
 				p2k "$_f"
 			done
-		fi
-		;;
+	fi
+	;;
 
-	# --- KEY MANAGEMENT ---
-	del)
-		[ $# -ge 1 ] || die "DEL requires <key>"
-		_rel=$(k2p "$1")
-		rm -f "$STRINGS_DIR/$_rel"
-		rm -rf "$SETS_DIR/$_rel"
-		rm -rf "$HASHES_DIR/$_rel"
-		;;
-	exists)
-		[ $# -ge 1 ] || die "EXISTS requires <key>"
-		_rel=$(k2p "$1")
-		if [ -f "$STRINGS_DIR/$_rel" ] || [ -d "$SETS_DIR/$_rel" ] || [ -d "$HASHES_DIR/$_rel" ]; then
-			echo "1"
-			exit 0
-		else
-			echo "0"
-			exit 1
+# --- KEY MANAGEMENT ---
+del)
+	[ $# -ge 1 ] || die "DEL requires <key>"
+	_rel=$(k2p "$1")
+	rm -f "$STRINGS_DIR/$_rel"
+	rm -rf "$SETS_DIR/$_rel"
+	rm -rf "$HASHES_DIR/$_rel"
+	;;
+exists)
+	[ $# -ge 1 ] || die "EXISTS requires <key>"
+	_rel=$(k2p "$1")
+	if [ -f "$STRINGS_DIR/$_rel" ] || [ -d "$SETS_DIR/$_rel" ] || [ -d "$HASHES_DIR/$_rel" ]; then
+		echo "1"
+		exit 0
+	else
+		echo "0"
+		exit 1
+	fi
+	;;
+keys)
+	_pattern=$(k2p "${1:-*}")
+	{
+		if [ -d "$STRINGS_DIR" ]; then
+			(
+				cd "$STRINGS_DIR"
+				find . -type f ! -name '*.tmp.*' ! -name '.*' -path "./$_pattern" 2>/dev/null
+			)
 		fi
-		;;
-	keys)
-		_pattern=$(k2p "${1:-*}")
-		{
-			if [ -d "$STRINGS_DIR" ]; then
-				(
-					cd "$STRINGS_DIR"
-					find . -type f ! -name '*.tmp.*' ! -name '.*' -path "./$_pattern" 2>/dev/null
-				)
-			fi
-			if [ -d "$SETS_DIR" ]; then
-				(
-					cd "$SETS_DIR"
-					find . -mindepth 1 -maxdepth 1 -type d ! -name '.*' -path "./$_pattern" 2>/dev/null
-				)
-			fi
-			if [ -d "$HASHES_DIR" ]; then
-				(
-					cd "$HASHES_DIR"
-					find . -mindepth 1 -maxdepth 1 -type d ! -name '.*' -path "./$_pattern" 2>/dev/null
-				)
-			fi
-		} |
+		if [ -d "$SETS_DIR" ]; then
+			(
+				cd "$SETS_DIR"
+				find . -mindepth 1 -maxdepth 1 -type d ! -name '.*' -path "./$_pattern" 2>/dev/null
+			)
+		fi
+		if [ -d "$HASHES_DIR" ]; then
+			(
+				cd "$HASHES_DIR"
+				find . -mindepth 1 -maxdepth 1 -type d ! -name '.*' -path "./$_pattern" 2>/dev/null
+			)
+		fi
+	} |
 		sed 's|^\./||' |
 		grep -v '^$' |
 		LC_ALL=C sort -u |
 		while IFS= read -r _p; do
 			p2k "$_p"
 		done
-		;;
-	*)
-		echo "kv: unknown command '$CMD'" >&2
-		usage
-		;;
+	;;
+*)
+	echo "kv: unknown command '$CMD'" >&2
+	usage
+	;;
 esac

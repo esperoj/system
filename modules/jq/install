@@ -3,9 +3,9 @@ set -eu
 
 . "${LIB_DIR}/sh/os.sh"
 
-if ! command -v jq > /dev/null 2>&1; then
-    echo "Installing jq..."
-    fetch-bin "gh:jqlang/jq" "jq-linux-${ARCH}$" "jq" "$HOME/.local/bin/jq"
+if ! command -v jq >/dev/null 2>&1; then
+	echo "Installing jq..."
+	fetch-bin "gh:jqlang/jq" "jq-linux-${ARCH}$" "jq" "$HOME/.local/bin/jq"
 else
-    echo "✓ jq is already installed."
+	echo "✓ jq is already installed."
 fi

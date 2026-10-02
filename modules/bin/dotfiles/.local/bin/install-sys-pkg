@@ -2,8 +2,8 @@
 set -eu
 
 if [ "$#" -lt 2 ]; then
-    echo "Usage: $0 <distro> <pkg1> [pkg2 ...]" >&2
-    exit 1
+	echo "Usage: $0 <distro> <pkg1> [pkg2 ...]" >&2
+	exit 1
 fi
 
 DISTRO="$1"
@@ -11,39 +11,39 @@ shift
 
 SUDO=""
 if [ "$DISTRO" != "termux" ] && [ "$(id -u)" -ne 0 ]; then
-    if command -v sudo >/dev/null 2>&1; then
-        SUDO="sudo"
-    else
-        echo "Warning: Not root and 'sudo' unavailable. Installation may fail." >&2
-    fi
+	if command -v sudo >/dev/null 2>&1; then
+		SUDO="sudo"
+	else
+		echo "Warning: Not root and 'sudo' unavailable. Installation may fail." >&2
+	fi
 fi
 
 case "$DISTRO" in
-    debian)
-        echo ":: Installing system packages via apt (strict mode)..."
-        export DEBIAN_FRONTEND=noninteractive
-        $SUDO apt-get update -qq
-        $SUDO apt-get install -y --no-install-recommends --no-install-suggests "$@"
-        ;;
-    alpine)
-        echo ":: Installing system packages via apk..."
-        $SUDO apk update -q
-        $SUDO apk add --no-cache "$@"
-        ;;
-    termux)
-        echo ":: Installing Termux packages via pkg..."
-        pkg update -y
-        pkg install -y "$@"
-        ;;
-    freebsd)
-        echo ":: Installing FreeBSD packages via pkg..."
-        $SUDO pkg update
-        $SUDO pkg install -y "$@"
-        ;;
-    *)
-        echo "Error: Unsupported distribution '$DISTRO'." >&2
-        exit 1
-        ;;
+debian)
+	echo ":: Installing system packages via apt (strict mode)..."
+	export DEBIAN_FRONTEND=noninteractive
+	$SUDO apt-get update -qq
+	$SUDO apt-get install -y --no-install-recommends --no-install-suggests "$@"
+	;;
+alpine)
+	echo ":: Installing system packages via apk..."
+	$SUDO apk update -q
+	$SUDO apk add --no-cache "$@"
+	;;
+termux)
+	echo ":: Installing Termux packages via pkg..."
+	pkg update -y
+	pkg install -y "$@"
+	;;
+freebsd)
+	echo ":: Installing FreeBSD packages via pkg..."
+	$SUDO pkg update
+	$SUDO pkg install -y "$@"
+	;;
+*)
+	echo "Error: Unsupported distribution '$DISTRO'." >&2
+	exit 1
+	;;
 esac
 
 echo ":: Installation complete."

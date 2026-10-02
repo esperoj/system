@@ -5,33 +5,33 @@ set -eu
 SVDIR="$HOME/.service"
 
 usage() {
-  echo "usage: stop <srv-home|wireproxy>..." >&2
-  exit 1
+	echo "usage: stop <srv-home|wireproxy>..." >&2
+	exit 1
 }
 
 [ $# -ge 1 ] || usage
 
 valid_service() {
-  case "$1" in
-    srv-home|wireproxy)
-      return 0
-      ;;
-    *)
-      return 1
-      ;;
-  esac
+	case "$1" in
+	srv-home | wireproxy)
+		return 0
+		;;
+	*)
+		return 1
+		;;
+	esac
 }
 
 for service in "$@"; do
-  if ! valid_service "$service"; then
-    echo "stop: unknown service: $service" >&2
-    exit 1
-  fi
+	if ! valid_service "$service"; then
+		echo "stop: unknown service: $service" >&2
+		exit 1
+	fi
 
-  if [ -e "$SVDIR/$service" ]; then
-    sv down "$SVDIR/$service" || true
-    sv status "$SVDIR/$service" || true
-  else
-    echo "stop: service not enabled: $service" >&2
-  fi
+	if [ -e "$SVDIR/$service" ]; then
+		sv down "$SVDIR/$service" || true
+		sv status "$SVDIR/$service" || true
+	else
+		echo "stop: service not enabled: $service" >&2
+	fi
 done

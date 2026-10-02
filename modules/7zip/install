@@ -5,9 +5,9 @@ set -eu
 
 ARCH_7Z=$([ "$ARCH" = "amd64" ] && echo "x64" || echo "$ARCH")
 
-if ! command -v 7z > /dev/null 2>&1; then
-    echo "Installing 7z..."
-    fetch-bin "gh:ip7z/7zip" "linux-${ARCH_7Z}\.tar\.xz$" "7zz" "$HOME/.local/bin/7z"
+if ! command -v 7z >/dev/null 2>&1; then
+	echo "Installing 7z..."
+	fetch-bin "gh:ip7z/7zip" "linux-${ARCH_7Z}\.tar\.xz$" "7zz" "$HOME/.local/bin/7z"
 else
-    echo "✓ 7z is already installed."
+	echo "✓ 7z is already installed."
 fi

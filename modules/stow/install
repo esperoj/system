@@ -3,16 +3,16 @@ set -eu
 
 # 1. If stow is already installed via system package manager, exit immediately
 if command -v stow >/dev/null 2>&1; then
-    echo "✓ stow is already installed."
-    exit 0
+	echo "✓ stow is already installed."
+	exit 0
 fi
 
 # 2. Rootless Fallback for Pubnix / Unprivileged environments
 echo ":: stow not found. Installing standalone GNU Stow to $HOME/.local..."
 
 if ! command -v perl >/dev/null 2>&1; then
-    echo "Error: perl is required to run GNU Stow on rootless systems." >&2
-    exit 1
+	echo "Error: perl is required to run GNU Stow on rootless systems." >&2
+	exit 1
 fi
 
 TMP_DIR=$(mktemp -d -t stow-install-XXXXXX)

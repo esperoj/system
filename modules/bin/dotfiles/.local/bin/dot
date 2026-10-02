@@ -12,7 +12,7 @@ STOW_OPTS="${STOW_OPTS:--v}"
 log() { echo ":: $*"; }
 
 die() {
-    cat <<EOF >&2
+	cat <<EOF >&2
 error: $*
 
 Usage: $0 {apply|remove|ls} [modules...]
@@ -21,120 +21,120 @@ Env Overrides:
   TARGET        Destination (default: \$HOME)
   MODULES_DIR   Source of modules (default: current dir)
 EOF
-    exit 1
+	exit 1
 }
 
 run_locked() {
-    local lockfile="${XDG_STATE_HOME:-$HOME/.local/state}/dot-stow.lock"
-    mkdir -p "$(dirname "$lockfile")"
-    if command -v flock >/dev/null 2>&1; then
-        (
-            flock -w 60 9 || die "Could not acquire stow lock (waited 60s)"
-            "$@"
-        ) 9> "$lockfile"
-    else
-        "$@"
-    fi
+	local lockfile="${XDG_STATE_HOME:-$HOME/.local/state}/dot-stow.lock"
+	mkdir -p "$(dirname "$lockfile")"
+	if command -v flock >/dev/null 2>&1; then
+		(
+			flock -w 60 9 || die "Could not acquire stow lock (waited 60s)"
+			"$@"
+		) 9>"$lockfile"
+	else
+		"$@"
+	fi
 }
 
 execute_apply() {
-    # Prune first to ensure clean symlinks if target was modified
-    "$STOW_BIN" -D -d "$MODULES_DIR" -t "$TARGET" "$@" 2>/dev/null || true
+	# Prune first to ensure clean symlinks if target was modified
+	"$STOW_BIN" -D -d "$MODULES_DIR" -t "$TARGET" "$@" 2>/dev/null || true
 
-    # Restow
-    "$STOW_BIN" \
-        ${STOW_OPTS} \
-        -d "$MODULES_DIR" \
-        -t "$TARGET" \
-        --ignore='^\.module-' \
-        --ignore='\.swp$' \
-        --ignore='\.git' \
-        "$@"
+	# Restow
+	"$STOW_BIN" \
+		${STOW_OPTS} \
+		-d "$MODULES_DIR" \
+		-t "$TARGET" \
+		--ignore='^\.module-' \
+		--ignore='\.swp$' \
+		--ignore='\.git' \
+		"$@"
 }
 
 execute_remove() {
-    "$STOW_BIN" ${STOW_OPTS} -D -d "$MODULES_DIR" -t "$TARGET" "$@"
+	"$STOW_BIN" ${STOW_OPTS} -D -d "$MODULES_DIR" -t "$TARGET" "$@"
 }
 backup_existing_targets() {
-  _stamp=$(date +%s)
+	_stamp=$(date +%s)
 
-  for _mod in "$@"; do
-    _moddir="$MODULES_DIR/$_mod"
-    [ -d "$_moddir" ] || continue
+	for _mod in "$@"; do
+		_moddir="$MODULES_DIR/$_mod"
+		[ -d "$_moddir" ] || continue
 
-    # 1. File conflicts:
-    #    Module wants a file, but target exists as a non-symlink.
-    (
-      cd "$_moddir"
-      find . -type f \
-        ! -path '*/.git/*' \
-        ! -name '*.swp' \
-        ! -name '*~' \
-        -print
-    ) | while IFS= read -r _rel; do
-      _rel=${_rel#./}
-      _target="$TARGET/$_rel"
+		# 1. File conflicts:
+		#    Module wants a file, but target exists as a non-symlink.
+		(
+			cd "$_moddir"
+			find . -type f \
+				! -path '*/.git/*' \
+				! -name '*.swp' \
+				! -name '*~' \
+				-print
+		) | while IFS= read -r _rel; do
+			_rel=${_rel#./}
+			_target="$TARGET/$_rel"
 
-      if [ -e "$_target" ] && [ ! -L "$_target" ]; then
-        log "Backing up existing $_target -> $_target.bak.$_stamp"
-        mv "$_target" "$_target.bak.$_stamp"
-      fi
-    done
+			if [ -e "$_target" ] && [ ! -L "$_target" ]; then
+				log "Backing up existing $_target -> $_target.bak.$_stamp"
+				mv "$_target" "$_target.bak.$_stamp"
+			fi
+		done
 
-    # 2. Directory conflicts:
-    #    Module wants a directory, but target exists as a non-directory.
-    (
-      cd "$_moddir"
-      find . -mindepth 1 -type d \
-        ! -path '*/.git/*' \
-        -print
-    ) | while IFS= read -r _rel; do
-      _rel=${_rel#./}
-      _target="$TARGET/$_rel"
+		# 2. Directory conflicts:
+		#    Module wants a directory, but target exists as a non-directory.
+		(
+			cd "$_moddir"
+			find . -mindepth 1 -type d \
+				! -path '*/.git/*' \
+				-print
+		) | while IFS= read -r _rel; do
+			_rel=${_rel#./}
+			_target="$TARGET/$_rel"
 
-      if [ -e "$_target" ] && [ ! -d "$_target" ] && [ ! -L "$_target" ]; then
-        log "Backing up existing non-directory $_target -> $_target.bak.$_stamp"
-        mv "$_target" "$_target.bak.$_stamp"
-      fi
-    done
-  done
+			if [ -e "$_target" ] && [ ! -d "$_target" ] && [ ! -L "$_target" ]; then
+				log "Backing up existing non-directory $_target -> $_target.bak.$_stamp"
+				mv "$_target" "$_target.bak.$_stamp"
+			fi
+		done
+	done
 }
 # --- Command Implementations ---
 cmd_apply() {
-  [ $# -gt 0 ] || die "apply requires at least one module name."
+	[ $# -gt 0 ] || die "apply requires at least one module name."
 
-  log "Applying [$*] to [$TARGET]"
+	log "Applying [$*] to [$TARGET]"
 
-  backup_existing_targets "$@"
+	backup_existing_targets "$@"
 
-  # Prune first to ensure clean symlinks if target was modified
-  "$STOW_BIN" -D -d "$MODULES_DIR" -t "$TARGET" "$@" 2>/dev/null || true
+	# Prune first to ensure clean symlinks if target was modified
+	"$STOW_BIN" -D -d "$MODULES_DIR" -t "$TARGET" "$@" 2>/dev/null || true
 
-  # Restow
-  "$STOW_BIN" \
-    ${STOW_OPTS} \
-    -d "$MODULES_DIR" \
-    -t "$TARGET" \
-    --ignore='^\.module-' \
-    --ignore='\.swp$' \
-    --ignore='\.git' \
-    "$@"
+	# Restow
+	"$STOW_BIN" \
+		${STOW_OPTS} \
+		-d "$MODULES_DIR" \
+		-t "$TARGET" \
+		--ignore='^\.module-' \
+		--ignore='\.swp$' \
+		--ignore='\.git' \
+		"$@"
 }
 cmd_remove() {
-    [ $# -gt 0 ] || die "remove requires at least one module name."
+	[ $# -gt 0 ] || die "remove requires at least one module name."
 
-    log "Removing [$*] from [$TARGET]"
-    run_locked execute_remove "$@"
+	log "Removing [$*] from [$TARGET]"
+	run_locked execute_remove "$@"
 }
 
 cmd_ls() {
-    log "Available modules in [$MODULES_DIR]:"
+	log "Available modules in [$MODULES_DIR]:"
 
-    # Portable listing without GNU find -printf
-    find "$MODULES_DIR" -maxdepth 1 -type d \
-        ! -path "$MODULES_DIR" \
-        ! -name ".*" \
-        -exec basename {} \; | LC_ALL=C sort | sed 's/^/  /'
+	# Portable listing without GNU find -printf
+	find "$MODULES_DIR" -maxdepth 1 -type d \
+		! -path "$MODULES_DIR" \
+		! -name ".*" \
+		-exec basename {} \; | LC_ALL=C sort | sed 's/^/  /'
 }
 
 # --- Validation ---
@@ -143,18 +143,18 @@ cmd_ls() {
 
 # --- Router ---
 case "${1:-}" in
-    apply)
-        shift
-        cmd_apply "$@"
-        ;;
-    remove)
-        shift
-        cmd_remove "$@"
-        ;;
-    ls|list)
-        cmd_ls
-        ;;
-    *)
-        die "Invalid or missing command. Use apply, remove, or ls."
-        ;;
+apply)
+	shift
+	cmd_apply "$@"
+	;;
+remove)
+	shift
+	cmd_remove "$@"
+	;;
+ls | list)
+	cmd_ls
+	;;
+*)
+	die "Invalid or missing command. Use apply, remove, or ls."
+	;;
 esac

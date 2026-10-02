@@ -23,7 +23,7 @@ ln -sf "${PREFIX}/share/anki/anki" "${PREFIX}/bin/anki"
 
 cp -f "${EXTRACTED_DIR}/anki.png" "${PREFIX}/share/pixmaps/anki.png"
 sed -e "s|Exec=anki|Exec=${PREFIX}/bin/anki|g" \
-    -e "s|Icon=anki|Icon=${PREFIX}/share/pixmaps/anki.png|g" \
-    "${EXTRACTED_DIR}/anki.desktop" > "${PREFIX}/share/applications/anki.desktop"
+	-e "s|Icon=anki|Icon=${PREFIX}/share/pixmaps/anki.png|g" \
+	"${EXTRACTED_DIR}/anki.desktop" >"${PREFIX}/share/applications/anki.desktop"
 
 echo "✓ Anki successfully installed to ${PREFIX}/bin/anki"
