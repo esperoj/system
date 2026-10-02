@@ -73,14 +73,6 @@
 
 (setq-default indent-tabs-mode nil)
 
-;; 3. Package Management
-(require 'package)
-
-(setq package-archives '(("melpa" . "https://melpa.org/packages/")
-                         ("gnu"   . "https://elpa.gnu.org/packages/")))
-
-(package-initialize)
-
 ;; 4. Completion (Icomplete + Flex)
 (icomplete-vertical-mode 1)
 

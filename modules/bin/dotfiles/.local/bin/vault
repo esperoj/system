@@ -76,7 +76,7 @@ cmd_sync() {
     if ! git remote | grep -q "^origin$"; then
         echo "Notice: No remote 'origin' configured. Skipping fetch/push."
         enforce_permissions
-        return 0
+        return 1
     fi
 
     # Auto-commit tracked and untracked changes if any

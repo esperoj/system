@@ -18,7 +18,7 @@ alias ll='ls -alF'
 alias ..='cd ..'
 alias q='exit'
 alias copy='xclip -selection clipboard 2>/dev/null || xsel -b -i'
-make() {
+m() {
   local dir="$PWD"
   while [ -n "$dir" ] && [ "$dir" != "/" ]; do
     if [ -f "$dir/Makefile" ] || [ -f "$dir/makefile" ]; then
