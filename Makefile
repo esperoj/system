@@ -65,10 +65,16 @@ fmt:
 review:
 	@if command -v aider >/dev/null 2>&1; then \
 		echo ":: Running Aider review on latest commit..."; \
-		aider --model gemini/gemini-flash-latest \
-			--message "Review the latest commit against the design principles, constraints, and architecture outlined in README.md and the codebase structure. \
-			\n\nLatest Commit Diff:\n$$(git show HEAD)\n\n \
-			Identify any bugs, architectural deviations, or unnecessary complexity."; \
+		msg_file=$$(mktemp); \
+		trap 'rm -f "$$msg_file"' EXIT INT TERM; \
+		cat <<-'EOF' > "$$msg_file"; \
+		Review the latest commit against the design principles, constraints, and architecture outlined in README.md and the codebase structure. \
+		Identify any bugs, architectural deviations, or unnecessary complexity. \
+		\
+		Latest Commit Diff: \
+		EOF
+		git show HEAD >> "$$msg_file"; \
+		aider --read README.md --message-file "$$msg_file"; \
 	else \
 		echo "review: aider not found; please install aider-chat to run reviews."; \
 		exit 1; \
