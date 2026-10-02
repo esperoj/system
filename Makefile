@@ -19,7 +19,7 @@ export PATH LIB_DIR KV_STORE LC_ALL
 # Safely finds all shell scripts, entrypoints, and library files
 FIND_SHELL = find configure modules -type f \( -name '*.sh' -o -name 'configure' -o -name 'install' -o -name 'setup' -o -path '*/.local/bin/*' -o -path '*/.local/lib/sh/*' \) -print0
 
-.PHONY: help lint fmt
+.PHONY: help lint fmt review
 
 help:
 	@echo "Usage: ./configure <target> && make <target>"
@@ -34,6 +34,7 @@ help:
 	@echo "  help         Show this help"
 	@echo "  lint         Run shellcheck and shfmt checks (read-only)"
 	@echo "  fmt          Format shell scripts in-place using shfmt"
+	@echo "  review       Run Aider review on the latest commit with full repo context"
 
 lint:
 	@rc=0; \
@@ -58,5 +59,18 @@ fmt:
 		echo "✓ Formatting complete."; \
 	else \
 		echo "fmt: shfmt not found; please install shfmt to format code."; \
+		exit 1; \
+	fi
+
+review:
+	@if command -v aider >/dev/null 2>&1; then \
+		echo ":: Running Aider review on latest commit..."; \
+		aider \
+			--read . \
+			--message "Review the latest commit against the design principles, constraints, and architecture outlined in README.md and the codebase structure. \
+			\n\nLatest Commit Diff:\n$$(git show HEAD)\n\n \
+			Identify any bugs, architectural deviations, or unnecessary complexity."; \
+	else \
+		echo "review: aider not found; please install aider-chat to run reviews."; \
 		exit 1; \
 	fi
