@@ -1,3 +1,4 @@
+.PHONY: vault vault-cfg
 VAULT_DEPS = bin lib git ssh stow
 vault: sys-pkgs $(VAULT_DEPS)
 	@"$(MODULES_DIR)/vault/setup"

@@ -18,19 +18,25 @@ alias ll='ls -alF'
 alias ..='cd ..'
 alias q='exit'
 alias copy='xclip -selection clipboard 2>/dev/null || xsel -b -i'
-
 make() {
-  if [[ "$PWD" == "$HOME/projects"* ]]; then
-    local root
-    root=$(git rev-parse --show-toplevel 2>/dev/null)
-    if [ -n "$root" ]; then
-      command make -C "$root" "$@"
+  local dir="$PWD"
+  while [ -n "$dir" ] && [ "$dir" != "/" ]; do
+    if [ -f "$dir/Makefile" ] || [ -f "$dir/makefile" ]; then
+      command make -C "$dir" "$@"
       return
     fi
+    dir="${dir%/*}"
+  done
+
+  # Root directory check
+  if [ -f "/Makefile" ] || [ -f "/makefile" ]; then
+    command make -C "/" "$@"
+    return
   fi
+
+  # Fallback to standard command
   command make "$@"
 }
-
 # 4. FZF (Auto-load if installed)
 [ -f /usr/share/doc/fzf/examples/key-bindings.bash ] && . /usr/share/doc/fzf/examples/key-bindings.bash
 

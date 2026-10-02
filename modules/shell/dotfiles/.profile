@@ -36,11 +36,6 @@ elif [ "$MACHINE_TYPE" = "pubnix" ]; then
 
     if [ ! -d "${TMPDIR}" ]; then
         mkdir -p "${TMPDIR}" && chmod 700 "${TMPDIR}"
-        for dir in .cache .npm tmp; do
-            mkdir -p "${TMPDIR}/$dir"
-            rm -rf "${HOME}/$dir"
-            ln -s "${TMPDIR}/$dir" "${HOME}/$dir"
-        done
     fi
 fi
 

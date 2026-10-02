@@ -1,4 +1,4 @@
-.PHONY: docker-base
+.PHONY: docker-base docker-base-cfg
 DOCKER_BASE_DEPS = stow base wireproxy
 docker-base: sys-pkgs $(DOCKER_BASE_DEPS)
 	MODULES_DIR="$(MODULES_DIR)/docker-base" dot apply dotfiles

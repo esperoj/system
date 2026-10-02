@@ -24,6 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         unzip \
         xz-utils \
         zstd \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -m -s /bin/bash -G sudo esperoj \
     && echo "esperoj ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/esperoj \
@@ -38,7 +39,9 @@ WORKDIR /home/esperoj/projects/system
 
 RUN rm -rf ~/.bashrc ~/.profile \
     && ./configure docker-base \
-    && make docker-base
+    && make docker-base \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /home/esperoj
 

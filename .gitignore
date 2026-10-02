@@ -1,1 +1,14 @@
 .kv-store
+.vault/
+backups/
+workspace/
+*.age
+vault-seed*
+*.sqlite
+*.log
+*.swp
+*.swo
+*~
+.DS_Store
+id_*
+!id_*.pub
