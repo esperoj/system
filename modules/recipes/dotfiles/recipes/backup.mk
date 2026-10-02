@@ -26,20 +26,21 @@ export RESTIC_REPOSITORY     := $(RESTIC_BACKUPS_REPOSITORY)
 # Rclone Remotes
 WORKSPACE_RCLONE_REMOTE := workspace:
 BACKUPS_RCLONE_REMOTE   := backups:
+PCLOUD_REMOTE           := pcloud:
 
 export RESTIC_HOST := $(MACHINE_TYPE)
 
-.PHONY: all daily pre-snap sync-workspace sync-backups snap clean info init-restic resync
+.PHONY: all daily pre-snap sync-workspace sync-backups sync-media snap clean info init-restic resync
 
 # Default target
 all: daily
 
 # Daily routine:
 # 1. Snapshot existing backups before sync
-# 2. Sync workspace/backups
+# 2. Sync workspace, backups, and machine-specific media
 # 3. Snapshot after sync
 # 4. Clean/prune
-daily: pre-snap .WAIT sync-workspace sync-backups .WAIT snap .WAIT clean
+daily: pre-snap .WAIT sync-workspace sync-backups sync-media .WAIT snap .WAIT clean
 
 info:
 	@echo "======================================================================"
@@ -69,6 +70,15 @@ sync-workspace: info
 sync-backups: info
 	@echo "--> Syncing Backups..."
 	@$(call do_bisync,$(BACKUP_DIR),$(BACKUPS_RCLONE_REMOTE))
+
+sync-media: info
+ifeq ($(MACHINE_TYPE),desktop)
+	@echo "--> Syncing PPSSPP config to pcloud..."
+	rclone sync $(HOME)/.config/ppsspp/ $(PCLOUD_REMOTE)ppsspp -P
+else ifeq ($(MACHINE_TYPE),phone)
+	@echo "--> Syncing Android DCIM to pcloud..."
+	rclone sync /sdcard/DCIM $(PCLOUD_REMOTE)DCIM -P
+endif
 
 init-restic: info
 	@if restic snapshots >/dev/null 2>&1; then \
