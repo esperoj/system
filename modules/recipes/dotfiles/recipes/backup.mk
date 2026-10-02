@@ -55,7 +55,6 @@ define do_bisync
 	mkdir -p "$(1)"
 	echo "--> Executing delta sync for $(1)..."
 	rclone bisync "$(1)" "$(2)" \
-		--verbose \
 		--resilient \
 		--recover \
 		--conflict-resolve newer \
@@ -74,10 +73,10 @@ sync-backups: info
 sync-media: info
 ifeq ($(MACHINE_TYPE),desktop)
 	@echo "--> Syncing PPSSPP config to pcloud..."
-	rclone sync $(HOME)/.config/ppsspp/ $(PCLOUD_REMOTE)ppsspp -P
+	rclone sync $(HOME)/.config/ppsspp/ $(PCLOUD_REMOTE)ppsspp -v
 else ifeq ($(MACHINE_TYPE),phone)
 	@echo "--> Syncing Android DCIM to pcloud..."
-	rclone sync /sdcard/DCIM $(PCLOUD_REMOTE)DCIM -P
+	rclone sync /sdcard/DCIM $(PCLOUD_REMOTE)DCIM -v
 endif
 
 init-restic: info
