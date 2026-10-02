@@ -40,8 +40,8 @@ WORKDIR /home/esperoj/projects/system
 RUN rm -rf ~/.bashrc ~/.profile \
     && ./configure docker-base \
     && make docker-base \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    && sudo apt-get clean \
+    && sudo rm -rf /var/lib/apt/lists/*
 
 WORKDIR /home/esperoj
 
