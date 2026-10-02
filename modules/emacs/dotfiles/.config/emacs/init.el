@@ -51,7 +51,7 @@
       ring-bell-function 'ignore)
 
 (add-hook 'emacs-startup-hook
-          (lambda () (setq gc-cons-threshold 800000)))
+          (lambda () (setq gc-cons-threshold 20000000))) ;; 20MB minimum to prevent Eglot LSP stutter
 
 (menu-bar-mode -1)
 (tool-bar-mode -1)
@@ -80,28 +80,6 @@
                          ("gnu"   . "https://elpa.gnu.org/packages/")))
 
 (package-initialize)
-
-(defun my/ensure-packages (pkgs)
-  "Ensure PKGS are available, installing them best-effort.
-Startup is not interrupted if package archives are unreachable."
-  (let ((to-install nil))
-    (dolist (pkg pkgs)
-      (unless (or (package-installed-p pkg)
-                  (require pkg nil 'noerror))
-        (push pkg to-install)))
-
-    (when to-install
-      (ignore-errors
-        (unless package-archive-contents
-          (package-refresh-contents))
-
-        (dolist (pkg to-install)
-          (package-install pkg))
-
-        (dolist (pkg to-install)
-          (require pkg nil 'noerror))))))
-
-(my/ensure-packages '(magit markdown-mode yaml-mode treesit-auto))
 
 ;; 4. Completion (Icomplete + Flex)
 (icomplete-vertical-mode 1)
@@ -135,6 +113,7 @@ Startup is not interrupted if package archives are unreachable."
 
 (require 'project)
 (setq project-list-file (expand-file-name "projects" my/state-dir))
+(setq xref-search-program 'ripgrep)
 
 ;; 6. Git / Magit
 (with-eval-after-load 'magit

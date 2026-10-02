@@ -225,7 +225,7 @@ case "$CMD" in
 
     exists)
         [ $# -ge 1 ] || { echo "Error: EXISTS requires <key>" >&2; exit 1; }
-        _rel=$(k2p "$1")"
+        _rel=$(k2p "$1")
 
         if [ -f "$STRINGS_DIR/$_rel" ] || [ -d "$SETS_DIR/$_rel" ] || [ -d "$HASHES_DIR/$_rel" ]; then
             echo "1"

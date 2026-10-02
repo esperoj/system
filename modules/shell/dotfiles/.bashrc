@@ -5,6 +5,7 @@
 if [ -f ~/.profile ]; then
     . ~/.profile
 fi
+
 # 2. History - Long-term logs with deduplication
 export HISTCONTROL=ignoreboth:erasedups
 export HISTSIZE=50000
@@ -17,6 +18,7 @@ alias ll='ls -alF'
 alias ..='cd ..'
 alias q='exit'
 alias copy='xclip -selection clipboard 2>/dev/null || xsel -b -i'
+
 make() {
   if [[ "$PWD" == "$HOME/projects"* ]]; then
     local root
@@ -28,10 +30,11 @@ make() {
   fi
   command make "$@"
 }
+
 # 4. FZF (Auto-load if installed)
 [ -f /usr/share/doc/fzf/examples/key-bindings.bash ] && . /usr/share/doc/fzf/examples/key-bindings.bash
 
-# 5. Short, High-Contrast PS1
+# 5. Fast, Native Bash Git Prompt
 ps1_git() {
   local exit_code=$?
   local status_color="\[\e[32m\]✔"
@@ -41,21 +44,36 @@ ps1_git() {
 
   local git_info=""
   if [[ "$PWD" == "$HOME/projects"* ]]; then
-    local unstaged=0 staged=0
+    # Rapid status fetch (0.2s timeout protects against freezing huge monolithic repos)
+    local git_status
+    git_status=$(timeout 0.2 git status --porcelain 2>/dev/null)
+    
+    if [ -n "$git_status" ]; then
+      local unstaged=0 staged=0
+      
+      # Process output using pure bash (zero sub-shells)
+      while IFS= read -r line; do
+        local x="${line:0:1}"
+        local y="${line:1:1}"
+        
+        # Check X column for index changes, Y column for working tree
+        [[ "$x" != " " && "$x" != "?" ]] && staged=1
+        [[ "$y" != " " || "$x" == "?" ]] && unstaged=1
+        
+        # Short-circuit if both states are confirmed
+        [[ $staged -eq 1 && $unstaged -eq 1 ]] && break
+      done <<< "$git_status"
 
-    ! git diff --quiet 2>/dev/null && unstaged=1
-    ! git diff --cached --quiet 2>/dev/null && staged=1
-
-    if [ $unstaged -eq 1 ] && [ $staged -eq 1 ]; then
-      git_info=" \[\e[35m\]*\[\e[0m\]"  # Magenta * (staged + unstaged)
-    elif [ $unstaged -eq 1 ]; then
-      git_info=" \[\e[31m\]*\[\e[0m\]"  # Red * (unstaged)
-    elif [ $staged -eq 1 ]; then
-      git_info=" \[\e[33m\]*\[\e[0m\]"  # Yellow * (staged)
+      if [ $unstaged -eq 1 ] && [ $staged -eq 1 ]; then
+        git_info=" \[\e[35m\]*\[\e[0m\]"  # Magenta *
+      elif [ $unstaged -eq 1 ]; then
+        git_info=" \[\e[31m\]*\[\e[0m\]"  # Red *
+      elif [ $staged -eq 1 ]; then
+        git_info=" \[\e[33m\]*\[\e[0m\]"  # Yellow *
+      fi
     fi
   fi
 
-  # Directory \w is Cyan (36m), cleanly separated from git_info
   PS1="${status_color} \[\e[36m\]\w\[\e[0m\]${git_info}\$ "
 }
 

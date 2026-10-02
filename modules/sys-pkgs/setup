@@ -3,16 +3,10 @@ set -eu
 
 . "${LIB_DIR}/sh/os.sh"
 
-case "$DISTRO" in
-    termux)  MGR="pkg" ;;
-    alpine)  MGR="apk" ;;
-    debian)  MGR="apt" ;;
-    freebsd) MGR="pkg" ;;
-    *)
-        echo "Notice: Distro '$DISTRO' not managed via system packages. Skipping." >&2
-        exit 0
-        ;;
-esac
+if [ "$DISTRO" = "unknown" ]; then
+    echo "Notice: Distro not managed via system packages. Skipping." >&2
+    exit 0
+fi
 
 if [ "$DISTRO" != "termux" ] && [ "$(id -u)" -ne 0 ] && ! sudo -n true 2>/dev/null; then
     echo "Notice: Insufficient privileges (not root and no cached sudo). Skipping system packages." >&2
@@ -42,7 +36,7 @@ DISTRO_PKGS=$(kv smembers "${DISTRO}-pkgs" 2>/dev/null || true)
 ALL_PKGS=$(printf '%s %s' "$COMMON_PKGS" "$DISTRO_PKGS" | tr -s ' ' | sed 's/^ //;s/ $//')
 
 if [ -n "$ALL_PKGS" ]; then
-    echo ":: Installing node dependencies for [$DISTRO] via [$MGR]: $ALL_PKGS"
+    echo ":: Installing node dependencies for [$DISTRO]: $ALL_PKGS"
     # shellcheck disable=SC2086
-    install-sys-pkg $ALL_PKGS
+    install-sys-pkg "$DISTRO" $ALL_PKGS
 fi
