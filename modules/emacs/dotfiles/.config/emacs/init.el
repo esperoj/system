@@ -70,17 +70,6 @@
                          ("gnu"   . "https://elpa.gnu.org/packages/")))
 (package-initialize)
 
-(defun my/ensure-packages (pkgs)
-  (let ((to-install nil))
-    (dolist (pkg pkgs)
-      (unless (or (package-installed-p pkg) (require pkg nil 'noerror))
-        (push pkg to-install)))
-    (when to-install
-      (unless package-archive-contents (package-refresh-contents))
-      (dolist (pkg to-install) (package-install pkg)))))
-
-(my/ensure-packages '(magit markdown-mode yaml-mode treesit-auto))
-
 ;; 4. Completion (Icomplete + Flex)
 (icomplete-vertical-mode 1)
 (setq icomplete-show-matches-on-no-input t
@@ -170,7 +159,7 @@
 ;; Markdown
 (setq markdown-command "pandoc -f markdown -t html --standalone"
       markdown-header-scaling t)
-(add-to-list 'auto-mode-alist '("\\.\\(?:md\\|markdown\\)\\'" . markdown-mode))
+(add-to-list 'auto-mode-alist '("\\.\\(?:md\\Vert{}markdown\\)\\'" . markdown-mode))
 (add-to-list 'auto-mode-alist '("README\\.md\\'" . gfm-mode))
 (add-hook 'markdown-mode-hook #'visual-line-mode)
 

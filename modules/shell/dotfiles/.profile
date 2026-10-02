@@ -24,7 +24,7 @@ load_all_envs() {
 
 load_all_envs
 
-HOSTNAME=$(hostname 2>/dev/null || uname -n)
+_HOSTNAME=$(hostname 2>/dev/null || uname -n)
 
 if [ -n "${TERMUX_VERSION:-}" ]; then
     export TMPDIR="${TMPDIR:-/data/data/com.termux/files/usr/tmp}"

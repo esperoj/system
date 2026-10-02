@@ -1,12 +1,18 @@
-#!/bin/bash
-data=${1@Q}
-CURL_OPTS='-H "Content-Type: text/plain"'
-shift 1
+#!/bin/sh
+set -eu
+
+[ $# -ge 1 ] || { echo "usage: notify <data> [header...]" >&2; exit 1; }
+
+data=$1
+shift
+
+set -- -SsfL -H "Content-Type: text/plain"
+
 for header in "$@"; do
-  CURL_OPTS="${CURL_OPTS} -H ${header@Q}"
+  shift
+  set -- "$@" -H "$header"
 done
-eval "curl -SsfL \
-	-d ${data} \
-  ${CURL_OPTS} \
-	${NTFY_URL@Q}
-"
+
+: "${NTFY_URL:?NTFY_URL must be set}"
+
+curl "$@" -d "$data" "$NTFY_URL"
