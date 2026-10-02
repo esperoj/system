@@ -2,152 +2,479 @@
 
 ## 1. Meta-Directive & Core Philosophy
 
-This computing environment is a personal sovereign system designed to remain fully understandable, buildable, and operable for **30+ years** without platform lock-in, vendor dependency, or maintenance fatigue.
+This computing environment is a personal sovereign system designed to remain understandable, buildable, and operable for decades without platform lock-in, vendor fatigue, or maintenance burden.
 
-To eliminate redundancy, the philosophy is defined through **four non-overlapping First Principles**, from which all technical choices logically derive.
+The system is pragmatic, not ideological.
 
-```
+Longevity, simplicity, safety, and flow are still the main goals, but when a pragmatic choice reduces real friction, avoids fragile workarounds, or lowers maintenance cost, that choice is accepted.
+
+```text
 FIRST PRINCIPLES                 DERIVED ARCHITECTURAL INVARIANTS
 ┌───────────────────────────┐    ┌───────────────────────────────────────────────┐
-│ 1. 30-Year Longevity      │───>│ Ubiquitous UNIX tooling; zero platform lock-in │
+│ 1. Pragmatic Longevity    │───>│ Boring UNIX tooling; avoid fragile frameworks │
 ├───────────────────────────┤    ├───────────────────────────────────────────────┤
 │ 2. Anti-Complexity        │───>│ Low cognitive overhead; inspectable text state│
 ├───────────────────────────┤    ├───────────────────────────────────────────────┤
-│ 3. Structural Safety      │───>│ Hardware-level boundary; atomic operations    │
+│ 3. Structural Safety      │───>│ Clear trust boundaries; explicit encryption   │
 ├───────────────────────────┤    ├───────────────────────────────────────────────┤
-│ 4. Frictionless Flow      │───>│ Sub-millisecond logins; zero runtime locks     │
+│ 4. Pragmatic Flow         │───>│ Immediate daily use; avoid recurring friction │
 └───────────────────────────┘    └───────────────────────────────────────────────┘
 ```
 
 ---
 
-### Axiom 1: 30-Year Longevity
-* **First Principle:** Code, formats, and tooling must be readable and executable three decades from now using standard C89/POSIX primitives.
-* **What We Avoid:** Ephemeral configuration frameworks (Nix, Ansible, Chef), commercial forge APIs, dynamic package manifests, and fragile package managers that break on API changes.
-* **Derived Standard:** Everything is written in POSIX shell, GNU Make, standard Git, plain text, and GNU Stow.
+### Axiom 1: Pragmatic Longevity
 
-### Axiom 2: Anti-Complexity & Low Cognitive Load
-* **First Principle:** An operator must be able to hold the entire system state in their head and inspect it with standard utilities (`cat`, `ls`, `grep`, `find`).
-* **What We Avoid:** Daemons, background file watchers, stateful SQLite databases for daily config, abstract dotfile managers (Chezmoi), and nested directory boilerplate.
-* **Derived Standard:** Caches and build artifacts are 100% disposable. State lives in flat text files. System configuration uses a flat key-value store with standard Redis semantics.
+Code, formats, and tooling should remain readable and executable for decades.
 
-### Axiom 3: Structural Safety over Runtime Mechanics
-* **First Principle:** Resilience comes from clear, hardware-enforced boundaries and atomic operations, not automated self-healing scripts or runtime encryption wrappers.
-* **What We Avoid:** Runtime RAMFS mounts, real-time decrypt-on-login hooks, and custom encrypted filesystems.
-* **Derived Standard:** Full-disk encryption (LUKS on Linux, File-Based Encryption on Android) forms the security perimeter at rest. Cold offsite archives enforce streaming `age` encryption only when crossing network boundaries.
+Preferred foundations:
 
-### Axiom 4: Frictionless Ergonomics
-* **First Principle:** Daily interactive tooling must be immediate, tactile, and transparent.
-* **What We Avoid:** Shell startup latency, passphrase prompts when opening a terminal, and background credential synchronization.
-* **Derived Standard:** Shell login scripts (`.profile`) contain zero network calls, zero stow commands, and zero decryption steps. Interactive Git is driven cleanly by native tooling and Emacs Magit.
+- POSIX shell
+- GNU Make
+- Git
+- plain text
+- GNU Stow
+- standard UNIX utilities
+
+Pragmatic allowances:
+
+- Bash is allowed when it is clearer, more maintainable, or necessary.
+- If a target environment lacks Bash but Bash is the pragmatic choice, install Bash rather than forcing awkward POSIX-only workarounds.
+- GNU Make features are accepted when the supported baseline provides them.
+- Hosted APIs are not forbidden. If a stable API is simpler and less fragile than scraping or custom workaround logic, using it is fine.
+
+What is still avoided:
+
+- ephemeral configuration frameworks
+- overly abstract dotfile managers
+- fragile package managers that constantly break on upstream changes
+- unnecessary platform lock-in
+- formats that cannot be inspected with normal text tools
 
 ---
 
-## 2. Implementation Derivation Matrix
+### Axiom 2: Anti-Complexity
 
-Every technical implementation choice in this repository maps directly back to the First Principles:
+The operator should be able to hold the system state in their head and inspect it with standard utilities:
+
+```sh
+cat
+ls
+grep
+find
+git
+make
+```
+
+Preferred state model:
+
+- caches and build artifacts are disposable
+- configuration state lives in flat text files
+- generated state is small and replaceable
+- no opaque databases for daily configuration
+
+Pragmatic allowances:
+
+- explicit supervised services are acceptable when a long-running process is genuinely required
+- tools like `runit` are acceptable because they are small, explicit, and inspectable
+- tmux remains an interactive tool, not a service manager
+
+What is still avoided:
+
+- hidden background state
+- unmanaged daemon hacks
+- complex service frameworks where a small supervisor is enough
+- nested boilerplate that obscures what is actually deployed
+
+---
+
+### Axiom 3: Structural Safety
+
+Resilience comes from clear boundaries and explicit operations.
+
+Core safety model:
+
+- full-disk encryption protects the local machine at rest
+  - LUKS on Linux desktop
+  - Android File-Based Encryption on Termux/Android
+- cold offsite backups are encrypted with `age`
+- encryption is applied explicitly when data crosses a network boundary
+- permissions are enforced structurally where possible
+
+Accepted personal tradeoffs:
+
+- the private vault may sync to a trusted VPS unencrypted
+- Docker images may use passwordless sudo when the container is a personal single-user environment
+- binary downloads do not require mandatory checksum or signature verification unless the threat model changes
+
+These tradeoffs are accepted because the alternative complexity is not worth the cost for a personal sovereign system.
+
+---
+
+### Axiom 4: Pragmatic Flow
+
+Daily interactive tooling must be immediate, transparent, and low-friction.
+
+Rules:
+
+- shell login should be fast
+- `.profile` should not perform package builds
+- `.profile` should not run stow
+- `.profile` should not prompt for decryption
+- `.profile` should not make network calls
+- daily Git work should be simple and tactile, preferably through Emacs Magit
+
+Pragmatic allowances:
+
+- a small amount of setup-time complexity is acceptable if it removes repeated daily friction
+- explicit commands are preferred over magical automation
+- if a choice makes the system easier to operate for years, it is preferred over theoretical purity
+
+---
+
+## 2. Accepted Pragmatic Tradeoffs
+
+These choices are explicitly accepted.
+
+| Area | Accepted Choice | Reason |
+|---|---|---|
+| GitHub API | GitHub REST API usage is fine when practical | Simpler and more reliable than brittle HTML scraping |
+| Shell | Bash is allowed where useful | Better ergonomics and maintainability when POSIX sh becomes awkward |
+| GNU Make | Modern GNU Make features are accepted | Primary targets are current Debian systems and future Debian releases |
+| Alpine / FreeBSD | Potential future targets, not current priority | No need to carry compatibility complexity yet |
+| Vault sync | Unencrypted vault sync to private VPS is accepted | Personal trust model; encrypted remote vault state adds too much pain |
+| Docker sudo | Passwordless sudo inside personal container images is accepted | Single-user personal environment |
+| Binary downloads | No mandatory checksum/signature verification by default | Personal threat model; may be revisited if needed |
+| Emacs | System-provided packages preferred; no MELPA startup fetching | Offline-first and lower long-term fragility |
+| Services | `runit` is preferred over tmux sessions for long-running services | Explicit supervision, restart behavior, and cleaner control |
+| Termux | Use Termux packages where available | Avoid unnecessary binary fetching when the package manager is sufficient |
+
+---
+
+## 3. Implementation Derivation Matrix
 
 | Architectural Component | Implementation Choice | Governing Principle | Rationale |
-| :--- | :--- | :--- | :--- |
-| **Build Engine** | `./configure` + `Makefile` | **Longevity & Simplicity** | Native to all UNIX systems; requires zero external runtimes to bootstrap. |
-| **State Bus (`kv`)** | POSIX CLI with Redis API (`SADD`, `SMEMBERS`) | **Anti-Complexity** | Avoids redundant package manager calls via bulk batching without introducing a database daemon. |
-| **Package Delivery** | 3-Tier Model (Apt / Pkg / `fetch-bin`) | **Longevity & Maintenance** | Separates system packages from rootless targets and fast-moving binaries without vendor lock-in. |
-| **Binary Fetcher** | Direct HTTP & HTML asset scraping (`fetch-bin`) | **Longevity & Resilience** | Eliminates GitHub REST API token requirements and 60 req/hr rate limits. |
-| **Vault Storage** | Unencrypted Git at `~/.vault` (flat root) | **Ergonomics & Safety** | Relies on host LUKS/FBE; eliminates RAMFS, Fossil locks, and startup delays. |
-| **Remote Sync** | Bare Git repository over SSH on private VPS | **Anti-Complexity** | Decouples sync from commercial clouds; uses native Git mechanics (`git push`). |
-| **Dotfile Linking** | GNU Stow via POSIX `dot` wrapper | **Anti-Complexity** | Clear, standard symlinks; zero custom sync daemons or proprietary tracking state. |
-| **Offsite Backups** | Streaming `tar \| age` (`backup create`) | **Structural Safety** | Explicit cryptographic boundary applied strictly when data leaves the node. |
+|---|---|---|---|
+| Build engine | `./configure` + GNU Make | Pragmatic longevity | Native, boring, scriptable, and widely understood |
+| State bus | flat-file `kv` store | Anti-complexity | Redis-inspired state without running a database daemon |
+| Package delivery | apt / pkg / `fetch-bin` tiers | Pragmatic longevity | System packages where sensible, user-space binaries where needed |
+| Binary fetcher | direct URLs, redirects, and GitHub REST API when practical | Pragmatic longevity | API use is accepted when it is simpler than scraping |
+| Vault storage | unencrypted Git at `~/.vault` | Pragmatic safety | Local disk encryption is the main perimeter; personal VPS is trusted |
+| Remote vault sync | bare Git repository over SSH | Anti-complexity | Native Git mechanics; no custom sync daemon |
+| Dotfile linking | GNU Stow via `dot` wrapper | Anti-complexity | Standard symlinks, inspectable and removable |
+| Offsite backups | streaming `tar | age` | Structural safety | Encryption applied explicitly when crossing network boundaries |
+| Service supervision | `runit` when services are needed | Pragmatic flow | Explicit and rootless-capable; better than tmux service hacks |
+| Emacs | built-ins plus system packages | Pragmatic flow | Offline-first, low moving-target dependency |
 
 ---
 
-## 3. Subsystem Architecture
+## 4. Subsystem Architecture
 
-### 3.1 The State Bus: Redis-Compatible `kv`
-The `./configure` script acts as a fast probe that interrogates the host node and populates `.kv-store`. To prevent package manager lock contention, `kv` implements Redis Set semantics:
+### 4.1 The State Bus: Flat `kv`
 
-* **Storage Scheme:**
-  * Strings: `.kv-store/strings/<key>`
-  * Sets: `.kv-store/sets/<set_name>/<member>` (empty marker files)
-  * Hashes: `.kv-store/hashes/<hash_name>/<field>`
-* **Commands:**
-  * `kv SADD <set> <member...>`: Adds unique members atomically without string manipulation.
-  * `kv SMEMBERS <set>`: Dumps unique set members for bulk operations (`apt-get install $(kv SMEMBERS apt-pkgs)`).
-  * `kv SET / GET / DEL`: Standard scalar key operations.
+The `./configure` script probes the host node and populates `.kv-store`.
 
-### 3.2 The 3-Tier Package Delivery Engine
-To balance system stability with rootless environments and fast-evolving CLI tools:
+The `kv` tool is a flat-file key-value store inspired by Redis. It is not a full Redis implementation and does not attempt to speak the Redis wire protocol. Its purpose is simple declarative state for build and provisioning logic.
 
+Storage scheme:
+
+```text
+.kv-store/strings/<key>
+.kv-store/sets/<set_name>/<member>
+.kv-store/hashes/<hash_name>/<field>
 ```
+
+Design goals:
+
+- no daemon
+- no database file
+- inspectable with `ls`, `cat`, `find`
+- safe for bulk package batching
+- line-oriented output for shell pipelines
+
+Typical commands:
+
+```sh
+kv SET <key> <value>
+kv GET <key>
+kv DEL <key>
+
+kv SADD <set> <member...>
+kv SMEMBERS <set>
+kv SREM <set> <member...>
+kv SISMEMBER <set> <member>
+kv SCARD <set>
+
+kv HSET <hash> <field> <value>
+kv HGET <hash> <field>
+kv HKEYS <hash>
+
+kv KEYS [pattern]
+kv EXISTS <key>
+```
+
+Output conventions:
+
+- `SMEMBERS` prints one member per line
+- `KEYS` prints one key per line
+- `MGET` prints one value per line
+- missing `MGET` values are represented as empty lines
+- exact Redis textual output is not a goal
+- shell usability is the goal
+
+Example:
+
+```sh
+install-sys-pkg $(kv SMEMBERS debian-pkgs)
+```
+
+---
+
+### 4.2 The 3-Tier Package Delivery Engine
+
+The system separates stable system packages from user-space binaries.
+
+```text
 ┌────────────────────────────────────────────────────────────────────────┐
 │                        PACKAGE DELIVERY PIPELINE                       │
 ├──────────────────────────┬─────────────────────────┬───────────────────┤
 │ Tier 1: Debian/Ubuntu    │ Tier 2: Android/Termux  │ Tier 3: Pubnix    │
 │ Bulk apt-get             │ Bulk pkg install        │ fetch-bin         │
-│ (System infrastructure)  │ (User-space Termux env) │ (User ~/.local/bin)│
+│ System infrastructure    │ User-space Termux env   │ ~/.local/bin      │
 └──────────────────────────┴─────────────────────────┴───────────────────┘
 ```
 
-* **`fetch-bin` Engine:** When a tool must be cutting-edge (`rclone`, `uv`, `restic`) or runs on a rootless pubnix node:
-  1. Resolves tags via HTTP redirects (`/releases/latest` -> `/tag/<TAG>`).
-  2. Extracts download links directly from GitHub's `/releases/expanded_assets/<TAG>` HTML (bypassing REST API rate limits completely).
-  3. Downloads, unpacks (`tar`, `zip`, `bz2`, `zstd`), and places binaries in `~/.local/bin` with `chmod 755`.
+Rules:
 
-### 3.3 Sovereign Vault (`~/.vault`) & VPS Sync
-Private keys, credentials, and sensitive configurations live in an unencrypted Git repository directly at `~/.vault`:
+1. Use system packages when they are stable and sufficient.
+2. Use Termux packages on Android/Termux when available.
+3. Use `fetch-bin` for:
+   - rootless environments
+   - fast-moving tools
+   - tools not packaged well by the system package manager
+   - user-local installations under `~/.local/bin`
 
-* **Flat Hierarchy:** The root of `~/.vault` directly maps to Stow packages (e.g., `~/.vault/ssh/`, `~/.vault/rclone/`). Non-stow assets are prefixed with `_` or `.` (e.g., `_keys/`).
-* **Permissions Invariant:** Directories are locked to `0700`; files are locked to `0600` automatically by `vault chmod`.
-* **VPS Synchronization:** A standard bare Git repository on your private VPS (`repos:srv/git/vault.git`) acts as the synchronization hub over SSH.
-* **Setup-Time Stowing:** Vault modules are stowed **once** during `make <target>` based on environment declarations (`kv smembers vault-modules`), never inside `.profile` at login.
+`fetch-bin` supports:
+
+- direct HTTP/HTTPS URLs
+- GitHub repositories using `gh:owner/repo`
+- asset regex or pattern matching
+- archive extraction for common formats
+- installation into `~/.local/bin`
+
+For GitHub releases, `fetch-bin` may use the GitHub REST API when that is simpler and more reliable than scraping HTML. This is accepted. Personal usage generally stays within reasonable API limits, and simplicity is preferred over ideological API avoidance.
 
 ---
 
-## 4. Repository Layout
+### 4.3 Sovereign Vault (`~/.vault`)
+
+Private keys, credentials, and sensitive configuration live in an unencrypted Git repository at:
+
+```text
+~/.vault
+```
+
+This is intentional.
+
+Security model:
+
+- local full-disk encryption is the primary perimeter
+- the vault is kept unencrypted locally for speed and simplicity
+- permissions are enforced automatically
+- cold offsite backups are encrypted with `age`
+
+Vault layout:
+
+```text
+~/.vault/
+├── ssh/
+├── rclone/
+├── wireproxy/
+├── _keys/
+└── ...
+```
+
+Top-level directories are Stow packages unless explicitly prefixed as private non-stow storage.
+
+Permission invariant:
+
+```text
+directories: 0700
+files:       0600
+executables: 0700
+```
+
+This is enforced by:
+
+```sh
+vault chmod
+```
+
+VPS synchronization:
+
+```sh
+vault sync
+```
+
+The remote repository is a bare Git repository on a private VPS:
+
+```text
+repos:srv/git/vault.git
+```
+
+The VPS copy is accepted as plaintext because it is a personal trusted system. If the threat model changes, remote encryption can be revisited.
+
+---
+
+### 4.4 Service Management
+
+Long-running user services should be supervised explicitly.
+
+Preferred supervisor:
+
+```text
+runit
+```
+
+Reasons:
+
+- small
+- stable
+- explicit
+- rootless-capable
+- easy to inspect
+- automatic restart on crash
+- standard `up/down/status` control
+
+Tmux is not treated as a service manager.
+
+User-level layout:
+
+```text
+~/.config/sv/<service>/run
+~/.service/<service> -> ~/.config/sv/<service>
+~/.local/state/runit/
+```
+
+Control examples:
+
+```sh
+sv up ~/.service/wireproxy
+sv down ~/.service/wireproxy
+sv status ~/.service/wireproxy
+```
+
+Rootless behavior:
+
+- user services can run without root
+- privileged system services still require root or sudo
+- SSH daemon control remains system-level
+- user SSH tunnels can be supervised as a normal user
+
+---
+
+### 4.5 Emacs
+
+Emacs is configured as a practical offline-first development environment.
+
+Preferred foundations:
+
+- built-in Emacs features
+- `project.el`
+- `eglot`
+- `treesit` where practical
+- Magit for Git workflows
+- system-provided Emacs Lisp packages where possible
+
+Avoided:
+
+- MELPA fetching at startup
+- network-dependent package installation as a core workflow
+- fragile third-party package managers inside Emacs
+
+If a package is needed, prefer:
+
+1. built-in Emacs functionality
+2. Debian/ELPA system package
+3. Termux package
+4. vendored file if truly necessary
+
+---
+
+## 5. Repository Layout
+
+Primary layout:
 
 ```text
 .
-├── configure                     # POSIX probe and kv state generator
+├── configure                     # Probe host and generate kv state
 ├── Makefile                      # Declarative build runner
-├── Dockerfile                    # Container target for reproducible base builds
-├── modules/
-│   ├── base/                     # Core system dependencies
-│   ├── bin/                      # System CLI tools (kv, dot, vault, fetch-bin, backup)
-│   ├── dev/                      # Development tooling (tmux, vim, compiler toolchains)
-│   ├── desktop/                  # XFCE/GUI configurations and autostart entries
-│   ├── emacs/                    # Built-in modern IDE config (Eglot, Treesit, Magit)
-│   ├── lib/                      # Shared POSIX shell libraries (os.sh, fetch.sh)
-│   ├── phone/                    # Android/Termux specific profiles
-│   ├── pubnix/                   # Shared rootless server profiles
-│   ├── shell/                    # Minimalist .bashrc, .profile, .inputrc
-│   └── vault/                    # Private vault setup hooks and automation
-└── store/                        # Canonical assets and long-term stores
+├── Dockerfile                    # Container base image target
+└── modules/
+    ├── base/                     # Core dependencies
+    ├── bin/                      # CLI tools: kv, dot, vault, fetch-bin, backup
+    ├── crontab/                  # Cron table management
+    ├── desktop/                  # Desktop environment config
+    ├── dev/                      # Development tooling
+    ├── emacs/                    # Emacs configuration
+    ├── env/                      # Base environment files
+    ├── lib/                      # Shared shell libraries
+    ├── phone/                    # Termux/Android profile
+    ├── pubnix/                   # Rootless shared UNIX profile
+    ├── recipes/                  # Make recipes such as backup.mk
+    ├── shell/                    # .profile, .bashrc, .inputrc
+    ├── ssh/                      # Public SSH material
+    ├── stow/                     # GNU Stow bootstrap
+    ├── sys-pkgs/                 # System package batching
+    ├── vault/                    # Vault setup hooks
+    └── wireproxy/                # WireProxy configuration
 ```
 
 ---
 
-## 5. Node Commissioning & Bootstrap Manual
+## 6. Node Commissioning & Bootstrap Manual
 
-### 5.1 Preparing the Trust Root
-A new node cannot pull its cryptographic identity out of thin air. Before provisioning, choose your trust root:
+### 6.1 Preparing the Trust Root
 
-* **Method A (Networked / SSH Agent):** If setting up remotely from your existing machine, use SSH Agent Forwarding:
-  ```sh
-  ssh -A user@new-node
-  ```
-* **Method B (Offline / Cold Seed):** Generate a streaming `age`-encrypted cold archive of your vault on an established node:
-  ```sh
-  backup create ~/.vault ~/vault-seed.tar.gz.age
-  ```
-  Transfer `vault-seed.tar.gz.age` and your `age` identity key to the target machine via USB or local transfer.
+A new node cannot pull its cryptographic identity out of thin air.
+
+Choose one trust root:
+
+#### Method A: Networked / SSH Agent
+
+If setting up remotely from an existing machine:
+
+```sh
+ssh -A user@new-node
+```
+
+#### Method B: Offline / Cold Seed
+
+Create an encrypted vault archive from an established node:
+
+```sh
+backup create ~/.vault ~/vault-seed.tar.gz.age
+```
+
+Transfer:
+
+- `vault-seed.tar.gz.age`
+- your `age` identity key
+
+to the target machine using USB or another local transfer method.
 
 ---
 
-### 5.2 Desktop Node Bootstrap (Debian / LUKS)
-* **Perimeter:** Hardware Full-Disk Encryption (LUKS).
-* **Access:** User with `sudo`.
+### 6.2 Desktop Node Bootstrap
+
+Target:
+
+- Debian desktop
+- LUKS full-disk encryption
+- normal user with sudo
 
 ```sh
-# 1. Install bare bootstrap dependencies
+# 1. Install bootstrap dependencies
 sudo apt-get update && sudo apt-get install -y git make curl ca-certificates
 
 # 2. Clone system repository
@@ -155,17 +482,17 @@ mkdir -p ~/projects
 git clone <SYSTEM_REPO_URL> ~/projects/system
 cd ~/projects/system
 
-# 3. Configure and execute bulk build
+# 3. Configure and build
 ./configure desktop
 make desktop
 
-# 4. Provision Vault
-# Option 4a: Using SSH identity
+# 4. Provision vault
+# Option A: SSH identity
 mkdir -p ~/.ssh && chmod 700 ~/.ssh
 cp /path/to/id_ed25519 ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
 vault init repos:srv/git/vault.git
 
-# Option 4b: Using cold backup
+# Option B: cold backup
 backup restore /path/to/vault-seed.tar.gz.age ~/.vault
 vault chmod
 vault apply ssh rclone wireproxy
@@ -176,12 +503,16 @@ exec bash -l
 
 ---
 
-### 5.3 Mobile Node Bootstrap (Android / Termux)
-* **Perimeter:** Android Native File-Based Encryption (FBE).
-* **Access:** Rootless Termux user-space.
+### 6.3 Mobile Node Bootstrap
+
+Target:
+
+- Android
+- Termux
+- Android File-Based Encryption
 
 ```sh
-# 1. Initialize Termux storage & bootstrap tools
+# 1. Initialize storage and bootstrap tools
 termux-setup-storage
 pkg update -y && pkg install -y git make curl
 
@@ -190,11 +521,11 @@ mkdir -p ~/projects
 git clone <SYSTEM_REPO_URL> ~/projects/system
 cd ~/projects/system
 
-# 3. Configure and execute mobile build
+# 3. Configure and build
 ./configure phone
 make phone
 
-# 4. Restore Vault from local storage
+# 4. Restore vault
 backup restore /sdcard/Download/vault-seed.tar.gz.age ~/.vault
 vault chmod
 vault apply ssh phone-sync
@@ -205,12 +536,19 @@ exec bash -l
 
 ---
 
-### 5.4 Pubnix Node Bootstrap (Shared Rootless UNIX)
-* **Perimeter:** Shared multi-user environment.
-* **Advisory:** Never deploy master identity keys to shared hosts. Stow only restricted, host-specific keys.
+### 6.4 Pubnix Node Bootstrap
+
+Target:
+
+- shared rootless UNIX host
+- no master identity keys unless explicitly required
+
+Advisory:
+
+> Never deploy master identity keys to shared hosts unless you fully trust the host and understand the consequences.
 
 ```sh
-# 1. Connect to pubnix
+# 1. Connect to pubnix host
 ssh user@tilde.team
 
 # 2. Clone repository
@@ -218,7 +556,7 @@ mkdir -p ~/projects
 git clone <SYSTEM_REPO_URL> ~/projects/system
 cd ~/projects/system
 
-# 3. Configure and execute user-space build
+# 3. Configure and build
 ./configure pubnix
 make pubnix
 
@@ -229,16 +567,18 @@ vault apply pubnix-env
 
 ---
 
-## 6. Daily Operator Workflows
+## 7. Daily Operator Workflows
 
-### Synchronizing Private Vault State
-Push or pull credentials and keys across machines natively:
+### Synchronize Vault
+
 ```sh
 vault sync
 ```
 
-### Updating System Modules
-When upstream public configurations change:
+---
+
+### Update System Modules
+
 ```sh
 cd ~/projects/system
 git pull --rebase
@@ -246,14 +586,56 @@ git pull --rebase
 make <target>
 ```
 
-### Creating Encrypted Offsite Backups
-Export a streaming `age`-encrypted archive before travel or maintenance:
+---
+
+### Create Encrypted Offsite Backup
+
 ```sh
 backup create ~/.vault ~/backups/vault-$(date +%F).tar.gz.age
 ```
 
-### Restoring from Cold Storage
-Extract an offsite backup to any destination:
+---
+
+### Restore From Cold Storage
+
 ```sh
 backup restore ~/backups/vault-2026-10-01.tar.gz.age ~/.vault
 ```
+
+---
+
+### Manage User Services
+
+For runit-managed services:
+
+```sh
+sv status ~/.service/<service>
+sv up ~/.service/<service>
+sv down ~/.service/<service>
+```
+
+Examples:
+
+```sh
+sv up ~/.service/wireproxy
+sv down ~/.service/wireproxy
+sv status ~/.service/wireproxy
+```
+
+---
+
+## 8. Supported Targets
+
+Primary current targets:
+
+- Debian desktop
+- Termux phone
+- Docker base environment
+- personal pubnix hosts
+
+Potential future targets:
+
+- Alpine
+- FreeBSD
+
+Alpine and FreeBSD are not active compatibility targets right now. Compatibility complexity for them is intentionally avoided until there is a real need.
