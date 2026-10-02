@@ -1,29 +1,60 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-stop() {
-  tmux send-keys -t $1 C-c
+usage() {
+    echo "usage: stop <home|caddy|esperoj|esperoj_storage|ssh_server|wireproxy>..." >&2
+    exit 1
+}
+
+[ $# -ge 1 ] || usage
+
+stop_tmux_session() {
+    tmux kill-session -t "$1" 2>/dev/null || true
 }
 
 for service in "$@"; do
-  case "${service}" in
-  home)
-    stop home
-    ;;
-  esperoj)
-    stop esperoj
-    ;;
-  esperoj_storage)
-    stop esperoj_storage
-    ;;
-  caddy)
-    caddy stop
-    ;;
-  ssh_server)
-    ssh -O exit serveo-ssh-tunnel
-    service ssh stop
-    ;;
-  wireproxy)
-    stop wireproxy
-    ;;
-  esac
+    case "$service" in
+        home)
+            stop_tmux_session home
+            ;;
+
+        esperoj)
+            stop_tmux_session esperoj
+            ;;
+
+        esperoj_storage)
+            stop_tmux_session esperoj_storage
+            ;;
+
+        caddy)
+            if command -v caddy >/dev/null 2>&1; then
+                caddy stop || true
+            else
+                echo "stop: caddy not found" >&2
+            fi
+            ;;
+
+        ssh_server)
+            ssh -O exit serveo-ssh-tunnel 2>/dev/null || true
+
+            if command -v service >/dev/null 2>&1; then
+                if [ "$(id -u)" -eq 0 ]; then
+                    service ssh stop || true
+                elif command -v sudo >/dev/null 2>&1; then
+                    sudo service ssh stop || true
+                else
+                    echo "stop: need root or sudo to stop ssh service" >&2
+                fi
+            fi
+            ;;
+
+        wireproxy)
+            stop_tmux_session wireproxy
+            ;;
+
+        *)
+            echo "stop: unknown service: $service" >&2
+            exit 1
+            ;;
+    esac
 done

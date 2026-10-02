@@ -1,59 +1,88 @@
-#!/bin/bash
-cd ~
+#!/usr/bin/env bash
+set -euo pipefail
 
-start() {
-  name="$1"
-  command_name="start_${name}_command"
-  tmux new-session -d -s "${name}" "${!command_name}"
+cd "$HOME"
+
+usage() {
+    echo "usage: start <home|caddy|esperoj|esperoj_storage|ssh_server|wireproxy>..." >&2
+    exit 1
 }
 
-start_home_command='
-  export RCLONE_PASS="${MY_UUID}"
-  rclone serve webdav \
-  --addr "unix://${HOME}/.sockets/home.sock" \
-  --dir-cache-time 0s \
-  --poll-interval 0 \
-  --user esperoj \
-  -L .'
+[ $# -ge 1 ] || usage
 
-start_esperoj_storage_command='
-  export RCLONE_AUTH_KEY="esperoj,${MY_UUID}"
-  rclone serve s3 \
-  --addr "unix://${HOME}/.sockets/esperoj-storage.sock" \
-  --dir-cache-time 0s \
-  --poll-interval 0 \
-  --vfs-cache-mode writes \
-  esperoj:'
+mkdir -p "$HOME/.sockets"
 
-start_esperoj_command='
-  esperoj start
-'
+require_my_uuid() {
+    if [ -z "${MY_UUID:-}" ]; then
+        echo "start: MY_UUID must be set for service '$1'" >&2
+        exit 1
+    fi
+}
 
-start_wireproxy_command='
-  cd ~/data && wireproxy -c wireproxy.conf
-'
+start_tmux_session() {
+    name="$1"
+    cmd="$2"
+
+    if tmux has-session -t "$name" 2>/dev/null; then
+        echo "start: tmux session '$name' already running." >&2
+        return 0
+    fi
+
+    tmux new-session -d -s "$name" "$cmd"
+}
 
 for service in "$@"; do
-  case "${service}" in
-  home)
-    start home
-    ;;
-  caddy)
-    caddy start
-    ;;
-  esperoj)
-    start esperoj
-    ;;
-  esperoj_storage)
-    start esperoj_storage
-    ;;
-  ssh_server)
-    service ssh start
-    echo "Connecting to Serveo for forwarding..."
-    ssh -f -N serveo-ssh-tunnel
-    ;;
-  wireproxy)
-    start wireproxy
-    ;;
-  esac
+    case "$service" in
+        home)
+            require_my_uuid "$service"
+            cmd="export RCLONE_PASS='${MY_UUID}'; mkdir -p '${HOME}/.sockets'; rclone serve webdav --addr unix://${HOME}/.sockets/home.sock --dir-cache-time 0s --poll-interval 0 --user esperoj -L ."
+            start_tmux_session home "$cmd"
+            ;;
+
+        caddy)
+            if ! command -v caddy >/dev/null 2>&1; then
+                echo "start: caddy not found" >&2
+                exit 1
+            fi
+            caddy start
+            ;;
+
+        esperoj)
+            start_tmux_session esperoj "esperoj start"
+            ;;
+
+        esperoj_storage)
+            require_my_uuid "$service"
+            cmd="export RCLONE_AUTH_KEY='esperoj,${MY_UUID}'; mkdir -p '${HOME}/.sockets'; rclone serve s3 --addr unix://${HOME}/.sockets/esperoj-storage.sock --dir-cache-time 0s --poll-interval 0 --vfs-cache-mode writes esperoj:"
+            start_tmux_session esperoj_storage "$cmd"
+            ;;
+
+        ssh_server)
+            if ! command -v service >/dev/null 2>&1; then
+                echo "start: service command not found" >&2
+                exit 1
+            fi
+
+            if [ "$(id -u)" -eq 0 ]; then
+                service ssh start
+            elif command -v sudo >/dev/null 2>&1; then
+                sudo service ssh start
+            else
+                echo "start: need root or sudo to start ssh service" >&2
+                exit 1
+            fi
+
+            echo "Connecting to Serveo for forwarding..."
+            ssh -f -N serveo-ssh-tunnel
+            ;;
+
+        wireproxy)
+            start_tmux_session wireproxy "cd '${HOME}/data' && wireproxy -c wireproxy.conf"
+            ;;
+
+        *)
+            echo "start: unknown service: $service" >&2
+            exit 1
+            ;;
+    esac
 done

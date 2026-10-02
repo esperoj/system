@@ -3,7 +3,6 @@
 set -eu
 
 USAGE="Usage: fetch-bin <url|gh:owner/repo> [asset-regex-or-pattern] [binary-name] [dest-path]"
-
 [ $# -lt 1 ] && { echo "$USAGE" >&2; exit 1; }
 
 SOURCE="$1"
@@ -11,14 +10,16 @@ PATTERN="${2:-}"
 BIN_NAME="${3:-}"
 DEST_PATH="${4:-$HOME/.local/bin}"
 
-# Source the engine
-LIB_DIR="${LIB_DIR:-$HOME/.local/lib}"
-if [ -f "${LIB_DIR}/sh/fetch.sh" ]; then
+# Source the engine.
+# Prefer LIB_DIR if provided by the build system.
+# Otherwise rely on the installed user library path.
+if [ -n "${LIB_DIR:-}" ] && [ -f "${LIB_DIR}/sh/fetch.sh" ]; then
     . "${LIB_DIR}/sh/fetch.sh"
+elif [ -f "$HOME/.local/lib/sh/fetch.sh" ]; then
+    . "$HOME/.local/lib/sh/fetch.sh"
 else
-    # Fallback to relative script location
-    _self_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-    . "${_self_dir}/../../../lib/dotfiles/.local/lib/sh/fetch.sh"
+    echo "fetch-bin: unable to locate fetch.sh (expected LIB_DIR/sh/fetch.sh or ~/.local/lib/sh/fetch.sh)" >&2
+    exit 1
 fi
 
 TMP_DIR=$(mktemp -d -t fetch-bin-XXXXXX)
@@ -35,36 +36,77 @@ echo ":: Downloading $URL..."
 fetch_download "$URL" "$ARCHIVE"
 
 EXTRACT_DIR="${TMP_DIR}/extracted"
+
 echo ":: Extracting $FILE_NAME..."
 fetch_extract "$ARCHIVE" "$EXTRACT_DIR"
 
 # Determine target binary name
 if [ -z "$BIN_NAME" ]; then
-    # If no binary name given, infer from source or archive
     case "$SOURCE" in
-        gh:*) BIN_NAME=$(basename "${SOURCE#gh:}") ;;
-        *)    BIN_NAME=$(basename "$FILE_NAME" | sed -E 's/\.(tar\.(gz|xz|zst|bz2)|zip|bz2|gz)$//') ;;
+        gh:*)
+            BIN_NAME=$(basename "${SOURCE#gh:}")
+            ;;
+        *)
+            BIN_NAME=$(basename "$FILE_NAME" | sed -E 's/\.(tar\.(gz|xz|zst|bz2)|zip|bz2|gz)$//')
+            ;;
     esac
 fi
 
-# Locate the binary in the extracted contents
-FOUND_BIN=$(find "$EXTRACT_DIR" -type f -name "$BIN_NAME" | head -n 1)
+FOUND_BIN=""
 
-# If not found by exact name (e.g. raw executable or single file), look for any executable or single file
-if [ -z "$FOUND_BIN" ]; then
-    FOUND_BIN=$(find "$EXTRACT_DIR" -type f ! -name "*.txt" ! -name "*.md" | head -n 1)
+# 1. Prefer exact binary name.
+if [ -n "$BIN_NAME" ]; then
+    FOUND_BIN=$(find "$EXTRACT_DIR" -type f -name "$BIN_NAME" | LC_ALL=C sort | head -n 1)
 fi
 
-[ -z "$FOUND_BIN" ] && { echo "Error: Could not locate target binary '$BIN_NAME' in archive" >&2; exit 1; }
+# 2. Fallback for raw single-binary archives where the extracted name differs.
+if [ -z "$FOUND_BIN" ]; then
+    CANDIDATES=$(find "$EXTRACT_DIR" -type f \
+        ! -name "*.txt" \
+        ! -name "*.md" \
+        ! -name "*.rst" \
+        ! -name "LICENSE*" \
+        ! -name "COPYING*" \
+        ! -name "NOTICE*" \
+        ! -name "AUTHORS*" \
+        ! -name "CHANGELOG*" \
+        ! -name "README*" \
+        ! -name "*.asc" \
+        ! -name "*.sig" \
+        ! -name "*.sha256" \
+        ! -name "*.sha512" \
+        ! -name "*.sbom" \
+        ! -path "*/share/*" \
+        ! -path "*/man/*" \
+        ! -path "*/doc/*" \
+        ! -path "*/completions/*" \
+        | LC_ALL=C sort)
+
+    if [ -n "$CANDIDATES" ]; then
+        COUNT=$(printf '%s\n' "$CANDIDATES" | wc -l | tr -d '[:space:]')
+
+        if [ "$COUNT" -eq 1 ]; then
+            FOUND_BIN=$(printf '%s\n' "$CANDIDATES" | head -n 1)
+        else
+            echo "fetch-bin: multiple possible binaries found; specify [binary-name] explicitly:" >&2
+            printf '%s\n' "$CANDIDATES" | sed 's/^/  /' >&2
+            exit 1
+        fi
+    fi
+fi
+
+[ -n "$FOUND_BIN" ] || { echo "fetch-bin: could not locate target binary '$BIN_NAME' in archive" >&2; exit 1; }
 
 # Install to destination
 mkdir -p "$(dirname "$DEST_PATH")"
+
 if [ -d "$DEST_PATH" ]; then
-    TARGET="${DEST_PATH}/${BIN_NAME}"
+    TARGET="${DEST_PATH%/}/${BIN_NAME}"
 else
     TARGET="$DEST_PATH"
 fi
 
 cp -f "$FOUND_BIN" "$TARGET"
 chmod 755 "$TARGET"
+
 echo "✓ Successfully installed $TARGET"

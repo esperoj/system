@@ -13,30 +13,28 @@ require_vault() {
     [ -d "$VAULT_ROOT/.git" ] || die "Vault repository not found at '$VAULT_ROOT'. Run 'vault init' first."
 }
 
-# Automatically enforce strict private permissions:
-# - Root and subdirectories: 0700 (owner rwx)
-# - Regular files: 0600 (owner rw only)
-# - Executable scripts: 0700 (owner rwx)
-# - Prunes .git to avoid corrupting Git internal storage
+# Portable permission enforcement:
+# - directories: 0700
+# - regular files: 0600
+# - owner-executable files: 0700
+# - .git is pruned to avoid corrupting Git internals
+enforce_permissions_dir() {
+    _root="${1:-$VAULT_ROOT}"
+
+    [ -d "$_root" ] || return 0
+
+    chmod 700 "$_root" 2>/dev/null || true
+
+    find "$_root" -name .git -prune -o -type d -exec chmod 700 {} + 2>/dev/null || true
+    find "$_root" -name .git -prune -o -type f -perm -0100 -exec chmod 700 {} + 2>/dev/null || true
+    find "$_root" -name .git -prune -o -type f ! -perm -0100 -exec chmod 600 {} + 2>/dev/null || true
+}
+
 enforce_permissions() {
-    [ -d "$VAULT_ROOT" ] || return 0
-
-    # 1. Enforce 0700 on vault root and all subdirectories
-    chmod 700 "$VAULT_ROOT" 2>/dev/null || true
-    find "$VAULT_ROOT" -name .git -prune -o -type d -exec chmod 700 {} + 2>/dev/null || true
-
-    # 2. Enforce 0600 on files (0700 if executable)
-    if find "$VAULT_ROOT" -maxdepth 0 -executable >/dev/null 2>&1; then
-        find "$VAULT_ROOT" -name .git -prune -o -type f ! -executable -exec chmod 600 {} + 2>/dev/null || true
-        find "$VAULT_ROOT" -name .git -prune -o -type f -executable -exec chmod 700 {} + 2>/dev/null || true
-    else
-        # Portable fallback
-        find "$VAULT_ROOT" -name .git -prune -o -type f -exec chmod 600 {} + 2>/dev/null || true
-    fi
+    enforce_permissions_dir "$VAULT_ROOT"
 }
 
 # --- Subcommands ---
-
 cmd_init() {
     if [ -d "$VAULT_ROOT/.git" ]; then
         echo "Vault already initialized at '$VAULT_ROOT'."
@@ -54,14 +52,13 @@ cmd_init() {
     else
         echo ":: Initializing new private vault repository..."
         git -C "$VAULT_ROOT" init -b main
-        
-        # Enforce strict private file permissions in Git repo
-        git -C "$VAULT_ROOT" config core.sharedRepository 0600
+
         cat <<'EOF' > "$VAULT_ROOT/.gitignore"
 *.swp
 *~
 .DS_Store
 EOF
+
         git -C "$VAULT_ROOT" add .gitignore
         git -C "$VAULT_ROOT" commit -m "chore: initialize sovereign vault"
     fi
@@ -75,6 +72,7 @@ cmd_sync() {
     cd "$VAULT_ROOT"
 
     echo ":: Synchronizing vault with remote..."
+
     if ! git remote | grep -q "^origin$"; then
         echo "Notice: No remote 'origin' configured. Skipping fetch/push."
         enforce_permissions
@@ -88,11 +86,32 @@ cmd_sync() {
         git commit -m "sync: $(uname -n) snapshot $(date '+%Y-%m-%d %H:%M:%S')"
     fi
 
-    git pull --rebase origin main 2>/dev/null || git pull --rebase origin master 2>/dev/null || true
-    git push origin HEAD
+    if ! git fetch origin; then
+        echo "vault warning: could not fetch from origin; skipping pull/push." >&2
+        enforce_permissions
+        return 0
+    fi
+
+    _upstream=""
+    if git rev-parse --verify origin/main >/dev/null 2>&1; then
+        _upstream="main"
+    elif git rev-parse --verify origin/master >/dev/null 2>&1; then
+        _upstream="master"
+    fi
+
+    if [ -n "$_upstream" ]; then
+        if ! git pull --rebase origin "$_upstream"; then
+            git rebase --abort 2>/dev/null || true
+            die "vault sync failed: rebase conflict while pulling origin/$_upstream. Resolve manually in $VAULT_ROOT."
+        fi
+    fi
+
+    if ! git push origin HEAD; then
+        die "vault sync failed: unable to push to origin."
+    fi
 
     enforce_permissions
-    echo "✓ Vault synchronized and permissions locked to 600."
+    echo "✓ Vault synchronized and permissions locked to 600/700."
 }
 
 cmd_apply() {
@@ -107,13 +126,16 @@ cmd_apply() {
 cmd_remove() {
     require_vault
     [ $# -gt 0 ] || die "remove requires at least one module name."
+
     MODULES_DIR="$VAULT_ROOT" dot remove "$@"
 }
 
 cmd_ls() {
     require_vault
+
     # List top-level directories, ignoring .git and hidden dirs
-    _mods=$(find "$VAULT_ROOT" -maxdepth 1 -mindepth 1 -type d ! -name ".*" -exec basename {} \; | sort | tr '\n' ' ')
+    _mods=$(find "$VAULT_ROOT" -maxdepth 1 -mindepth 1 -type d ! -name ".*" -exec basename {} \; | LC_ALL=C sort | tr '\n' ' ')
+
     if [ -n "$_mods" ]; then
         echo "$_mods"
     else
@@ -124,8 +146,10 @@ cmd_ls() {
 cmd_status() {
     require_vault
     cd "$VAULT_ROOT"
+
     echo "=== Vault Repository Status ($VAULT_ROOT) ==="
     git status -s
+
     echo "=== Available Modules ==="
     cmd_ls
 }
@@ -137,6 +161,7 @@ cmd_diff() {
 
 cmd_chmod() {
     require_vault
+
     echo ":: Enforcing 600/700 permissions across $VAULT_ROOT..."
     enforce_permissions
     echo "✓ All files locked to 600, directories locked to 700."
@@ -144,35 +169,134 @@ cmd_chmod() {
 
 cmd_cd() {
     require_vault
+
     echo "Entering vault shell at $VAULT_ROOT (exit to return)..."
     (cd "$VAULT_ROOT" && "${SHELL:-/bin/sh}")
 }
 
+cmd_backup() {
+    [ $# -ge 1 ] || die "backup requires a subcommand: create or restore"
+
+    _action="$1"
+    shift
+
+    case "$_action" in
+        create)
+            require_vault
+
+            DEST="${1:-$HOME/backups/vault-$(date +%F-%H%M%S).tar.gz.age}"
+            RECIPIENT="${2:-${AGE_RECIPIENTS:-}}"
+
+            if [ -z "$RECIPIENT" ] && [ -f "$HOME/.config/age/recipients.txt" ]; then
+                RECIPIENT=$(grep -v '^#' "$HOME/.config/age/recipients.txt" | head -n 1)
+            fi
+
+            [ -n "$RECIPIENT" ] || die "no age recipient provided or found"
+            command -v age >/dev/null 2>&1 || die "age command not found"
+
+            _src=$(cd "$VAULT_ROOT" && pwd -P)
+            _parent=$(dirname "$_src")
+            _base=$(basename "$_src")
+
+            mkdir -p "$(dirname "$DEST")"
+
+            echo ":: Backing up vault $_src -> $DEST"
+            (
+                umask 077
+                tar -C "$_parent" -czf - "$_base" | age -r "$RECIPIENT" -o "$DEST"
+            )
+            chmod 600 "$DEST"
+
+            echo "✓ Created encrypted vault backup: $DEST"
+            ;;
+
+        restore)
+            SRC="${1:-}"
+            DEST="${2:-$VAULT_ROOT}"
+            IDENTITY="${3:-${AGE_IDENTITIES_FILE:-$HOME/.config/age/keys.txt}}"
+
+            [ -n "$SRC" ] || die "restore requires <archive.tar.gz.age> [destination-dir] [age-identity-file]"
+            [ -f "$SRC" ] || die "encrypted archive '$SRC' not found"
+            [ -f "$IDENTITY" ] || die "age identity key '$IDENTITY' not found"
+            command -v age >/dev/null 2>&1 || die "age command not found"
+
+            if [ -d "$DEST" ] && [ -n "$(ls -A "$DEST" 2>/dev/null)" ] && [ -z "${VAULT_FORCE:-}" ]; then
+                die "destination '$DEST' is not empty. Set VAULT_FORCE=1 to overwrite."
+            fi
+
+            mkdir -p "$DEST"
+
+            echo ":: Restoring vault backup $SRC -> $DEST"
+            age -d -i "$IDENTITY" "$SRC" | tar -C "$DEST" --strip-components=1 -xzf -
+
+            enforce_permissions_dir "$DEST"
+            echo "✓ Restored vault backup into $DEST"
+            ;;
+
+        *)
+            die "unknown vault backup subcommand: $_action"
+            ;;
+    esac
+}
+
 # --- Router ---
 case "${1:-}" in
-    init)   shift; cmd_init "$@" ;;
-    sync)   shift; cmd_sync "$@" ;;
-    apply)  shift; cmd_apply "$@" ;;
-    remove) shift; cmd_remove "$@" ;;
-    status) shift; cmd_status "$@" ;;
-    diff)   shift; cmd_diff "$@" ;;
-    chmod)  shift; cmd_chmod ;;
-    ls)     shift; cmd_ls ;;
-    cd)     shift; cmd_cd ;;
+    init)
+        shift
+        cmd_init "$@"
+        ;;
+    sync)
+        shift
+        cmd_sync "$@"
+        ;;
+    apply)
+        shift
+        cmd_apply "$@"
+        ;;
+    remove)
+        shift
+        cmd_remove "$@"
+        ;;
+    status)
+        shift
+        cmd_status "$@"
+        ;;
+    diff)
+        shift
+        cmd_diff "$@"
+        ;;
+    chmod)
+        shift
+        cmd_chmod
+        ;;
+    ls)
+        shift
+        cmd_ls
+        ;;
+    cd)
+        shift
+        cmd_cd
+        ;;
+    backup)
+        shift
+        cmd_backup "$@"
+        ;;
     *)
         cat <<EOF
 vault - Sovereign Private Git Manager
 
 Usage:
-  vault init [remote-url]     Initialize ~/.vault (or clone from VPS)
-  vault sync                  Commit local changes, pull --rebase, push to VPS
-  vault apply <module...>     Lock to 600 and link module dotfiles via stow
-  vault remove <module...>    Unlink module dotfiles
-  vault chmod                 Manually enforce 600 (files) and 700 (dirs)
-  vault status                Show modified files and available modules
-  vault diff                  Show git diff of uncommitted changes
-  vault ls                    List available private modules
-  vault cd                    Spawn a subshell inside ~/.vault
+  vault init [remote-url]                     Initialize ~/.vault (or clone from VPS)
+  vault sync                                  Commit local changes, pull --rebase, push to VPS
+  vault apply <module...>                     Lock to 600 and link module dotfiles via stow
+  vault remove <module...>                    Unlink module dotfiles
+  vault chmod                                 Manually enforce 600 (files) and 700 (dirs)
+  vault status                                Show modified files and available modules
+  vault diff                                  Show git diff of uncommitted changes
+  vault ls                                    List available private modules
+  vault cd                                    Spawn a subshell inside ~/.vault
+  vault backup create [dest.age] [recipient]  Create encrypted vault backup
+  vault backup restore <archive.age> [dest]   Restore encrypted vault backup
 EOF
         exit 1
         ;;

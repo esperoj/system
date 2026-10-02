@@ -7,6 +7,7 @@ MAKEFLAGS += -j -Otarget
 
 # 3. Environment/Path Setup
 VAULT_DIR     := $(HOME)/.vault
+
 ifeq ($(MACHINE_TYPE),desktop)
     BACKUP_DIR    := $(HOME)/backups
     WORKSPACE_DIR := $(HOME)/workspace
@@ -26,14 +27,19 @@ export RESTIC_REPOSITORY     := $(RESTIC_BACKUPS_REPOSITORY)
 WORKSPACE_RCLONE_REMOTE := workspace:
 BACKUPS_RCLONE_REMOTE   := backups:
 
-export RESTIC_HOST  := $(MACHINE_TYPE)
-.PHONY: all daily sync-workspace sync-backups snap clean info init-restic resync
+export RESTIC_HOST := $(MACHINE_TYPE)
+
+.PHONY: all daily pre-snap sync-workspace sync-backups snap clean info init-restic resync
 
 # Default target
 all: daily
 
-# The Daily Peace-of-Mind routine (Runs regular delta syncs)
-daily: sync-workspace sync-backups .WAIT snap .WAIT clean
+# Daily routine:
+# 1. Snapshot existing backups before sync
+# 2. Sync workspace/backups
+# 3. Snapshot after sync
+# 4. Clean/prune
+daily: pre-snap .WAIT sync-workspace sync-backups .WAIT snap .WAIT clean
 
 info:
 	@echo "======================================================================"
@@ -45,9 +51,9 @@ info:
 
 # Streamlined macro: purely handles regular delta operations
 define do_bisync
-	mkdir -p $(1)
+	mkdir -p "$(1)"
 	echo "--> Executing delta sync for $(1)..."
-	rclone bisync $(1) $(2) \
+	rclone bisync "$(1)" "$(2)" \
 		--verbose \
 		--resilient \
 		--recover \
@@ -65,8 +71,12 @@ sync-backups: info
 	@$(call do_bisync,$(BACKUP_DIR),$(BACKUPS_RCLONE_REMOTE))
 
 init-restic: info
-	@echo "--> Initializing restic cryptographic repository..."
-	restic init || echo "--> [Notice] Restic repository might already be initialized."
+	@if restic snapshots >/dev/null 2>&1; then \
+		echo "--> Restic repository already initialized."; \
+	else \
+		echo "--> Initializing restic cryptographic repository..."; \
+		restic init; \
+	fi
 
 resync: info
 	@echo "--> Performing first-time baseline resync for Workspace..."
@@ -77,10 +87,15 @@ resync: info
 	mkdir -p $(BACKUP_DIR)
 	rclone bisync $(BACKUP_DIR) $(BACKUPS_RCLONE_REMOTE) --resync --verbose --fast-list
 
-snap: info
+pre-snap: info init-restic
 	@mkdir -p $(BACKUP_DIR)
-	@echo "--> Initializing restic cryptographic snapshot upload for BACKUPS folder..."
-	restic backup $(BACKUP_DIR) --verbose --exclude-caches
+	@echo "--> Taking pre-sync restic snapshot of BACKUPS folder..."
+	restic backup $(BACKUP_DIR) --verbose --exclude-caches --tag pre-sync
+
+snap: info init-restic
+	@mkdir -p $(BACKUP_DIR)
+	@echo "--> Taking post-sync restic snapshot of BACKUPS folder..."
+	restic backup $(BACKUP_DIR) --verbose --exclude-caches --tag post-sync
 
 clean: info
 	@echo "--> Releasing repository lock threads & purging retention indexes..."
