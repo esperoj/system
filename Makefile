@@ -37,45 +37,32 @@ help:
 	@echo "  review       Run Aider review on the latest commit with full repo context"
 
 lint:
-	@rc=0; \
-	if command -v shellcheck >/dev/null 2>&1; then \
-		echo ":: Running shellcheck..."; \
-		$(FIND_SHELL) | xargs -0 -r shellcheck --severity=error || rc=1; \
-	else \
-		echo "lint: shellcheck not found; skipping"; \
-	fi; \
-	if command -v shfmt >/dev/null 2>&1; then \
-		echo ":: Running shfmt check..."; \
-		$(FIND_SHELL) | xargs -0 -r shfmt -d || rc=1; \
-	else \
-		echo "lint: shfmt not found; skipping"; \
-	fi; \
+	@rc=0
+	if command -v shellcheck >/dev/null 2>&1; then
+		echo ":: Running shellcheck..."
+		$(FIND_SHELL) | xargs -0 -r shellcheck --severity=error || rc=1
+	else
+		echo "lint: shellcheck not found; skipping"
+	fi
+
+	if command -v shfmt >/dev/null 2>&1; then
+		echo ":: Running shfmt check..."
+		$(FIND_SHELL) | xargs -0 -r shfmt -d || rc=1
+	else
+		echo "lint: shfmt not found; skipping"
+	fi
+
 	exit $$rc
 
 fmt:
-	@if command -v shfmt >/dev/null 2>&1; then \
-		echo ":: Formatting shell scripts with shfmt..."; \
-		$(FIND_SHELL) | xargs -0 -r shfmt -w; \
-		echo "✓ Formatting complete."; \
-	else \
-		echo "fmt: shfmt not found; please install shfmt to format code."; \
-		exit 1; \
+	@if command -v shfmt >/dev/null 2>&1; then
+		echo ":: Formatting shell scripts with shfmt..."
+		$(FIND_SHELL) | xargs -0 -r shfmt -w
+		echo "✓ Formatting complete."
+	else
+		echo "fmt: shfmt not found; please install shfmt to format code."
+		exit 1
 	fi
 
 review:
-	@if command -v aider >/dev/null 2>&1; then \
-		echo ":: Running Aider review on latest commit..."; \
-		msg_file=$$(mktemp); \
-		trap 'rm -f "$$msg_file"' EXIT INT TERM; \
-		cat <<-'EOF' > "$$msg_file"; \
-		Review the latest commit against the design principles, constraints, and architecture outlined in README.md and the codebase structure. \
-		Identify any bugs, architectural deviations, or unnecessary complexity. \
-		\
-		Latest Commit Diff: \
-		EOF
-		git show HEAD >> "$$msg_file"; \
-		aider --read README.md --message-file "$$msg_file"; \
-	else \
-		echo "review: aider not found; please install aider-chat to run reviews."; \
-		exit 1; \
-	fi
+	@review

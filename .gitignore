@@ -12,3 +12,4 @@ vault-seed*
 .DS_Store
 id_*
 !id_*.pub
+.aider*

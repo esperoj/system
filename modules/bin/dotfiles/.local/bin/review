@@ -1,0 +1,23 @@
+#!/bin/sh
+set -e
+
+if ! command -v aider >/dev/null 2>&1; then
+	echo "review: aider not found; please install aider-chat to run reviews." >&2
+	exit 1
+fi
+
+echo ":: Running Aider review on latest commit..."
+
+msg_file=$(mktemp)
+trap 'rm -f "$msg_file"' EXIT INT TERM
+
+cat <<'EOF' >"$msg_file"
+Review the latest commit against the design principles, constraints, and architecture outlined in README.md and the codebase structure.
+Identify any bugs, architectural deviations, or unnecessary complexity.
+
+Latest Commit Diff:
+EOF
+
+git show HEAD >>"$msg_file"
+
+aider --model gemini/gemini-flash-latest --read README.md --message-file "$msg_file"
