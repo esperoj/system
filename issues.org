@@ -1,0 +1,15 @@
+#+TITLE: Project Issues & Tasks
+#+AUTHOR: Esperoj
+#+STARTUP: showeverything
+#+FILETAGS: :system:
+
+# Custom TODO states for issue tracking:
+# OPEN states: TODO, IN_PROGRESS, WAITING
+# CLOSED states: DONE, WONTFIX, DUPLICATE
+#+TYP_TODO: TODO(t) IN_PROGRESS(i) WAITING(w) | DONE(d) WONTFIX(x) DUPLICATE(u)
+
+* TODO Create a issues mode for Emacs
+
+* TODO Remove complexity from kv and vault especially backup features
+
+* TODO 
