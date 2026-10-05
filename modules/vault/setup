@@ -6,7 +6,6 @@ VAULT_REMOTE="${VAULT_REMOTE:-repos:srv/git/vault.git}"
 
 echo ":: Initializing Sovereign Vault at $VAULT_ROOT..."
 
-# 1. Initialize repository if absent
 if [ ! -d "$VAULT_ROOT/.git" ]; then
 	echo ":: Checking access to remote $VAULT_REMOTE..."
 	if git clone "$VAULT_REMOTE" "$VAULT_ROOT" 2>/dev/null; then
@@ -31,11 +30,11 @@ else
 	fi
 fi
 
-# 2. Strict permission enforcement delegated entirely to vault CLI
+# Strict permissions
 vault chmod
 
-# 3. Apply target modules registered in .kv-store
-TARGET_MODS=$(kv smembers "vault-modules" 2>/dev/null || true)
+# Read target modules directly from environment variable
+TARGET_MODS="${VAULT_MODULES:-}"
 
 if [ -n "$TARGET_MODS" ]; then
 	echo ":: Applying configured vault modules: $TARGET_MODS"

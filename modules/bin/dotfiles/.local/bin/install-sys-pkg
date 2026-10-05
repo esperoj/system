@@ -1,13 +1,34 @@
 #!/bin/sh
+# install-sys-pkg - standalone or batch package installer
 set -eu
 
-if [ "$#" -lt 2 ]; then
-	echo "Usage: $0 <distro> <pkg1> [pkg2 ...]" >&2
+# Source os.sh directly (operates independently outside Make)
+if [ -n "${LIB_DIR:-}" ] && [ -f "${LIB_DIR}/sh/os.sh" ]; then
+	. "${LIB_DIR}/sh/os.sh"
+elif [ -f "$HOME/.local/lib/sh/os.sh" ]; then
+	. "$HOME/.local/lib/sh/os.sh"
+elif [ -f "./modules/lib/dotfiles/.local/lib/sh/os.sh" ]; then
+	. "./modules/lib/dotfiles/.local/lib/sh/os.sh"
+else
+	echo "install-sys-pkg: unable to locate os.sh" >&2
 	exit 1
 fi
 
-DISTRO="$1"
-shift
+# Determine packages to install
+if [ $# -gt 0 ]; then
+	PKGS="$*"
+else
+	distro_var="$(printf '%s_PKGS' "$DISTRO" | tr '[:lower:]' '[:upper:]')"
+	eval "DISTRO_PKGS=\${$distro_var:-}"
+	PKGS="${COMMON_PKGS:-} ${DISTRO_PKGS:-}"
+fi
+
+# Deduplicate
+PKGS=$(printf '%s\n' $PKGS | sort -u | tr '\n' ' ' | sed 's/^ //;s/ $//')
+
+[ -n "$PKGS" ] || exit 0
+
+echo ":: Installing system packages for [$DISTRO]: $PKGS"
 
 SUDO=""
 if [ "$DISTRO" != "termux" ] && [ "$(id -u)" -ne 0 ]; then
@@ -20,30 +41,30 @@ fi
 
 case "$DISTRO" in
 debian)
-	echo ":: Installing system packages via apt (strict mode)..."
 	export DEBIAN_FRONTEND=noninteractive
 	$SUDO apt-get update -qq
-	$SUDO apt-get install -y --no-install-recommends --no-install-suggests "$@"
-	;;
-alpine)
-	echo ":: Installing system packages via apk..."
-	$SUDO apk update -q
-	$SUDO apk add --no-cache "$@"
+	# shellcheck disable=SC2086
+	$SUDO apt-get install -y --no-install-recommends --no-install-suggests $PKGS
 	;;
 termux)
-	echo ":: Installing Termux packages via pkg..."
 	pkg update -y
-	pkg install -y "$@"
+	# shellcheck disable=SC2086
+	pkg install -y $PKGS
+	;;
+alpine)
+	$SUDO apk update -q
+	# shellcheck disable=SC2086
+	$SUDO apk add --no-cache $PKGS
 	;;
 freebsd)
-	echo ":: Installing FreeBSD packages via pkg..."
 	$SUDO pkg update
-	$SUDO pkg install -y "$@"
+	# shellcheck disable=SC2086
+	$SUDO pkg install -y $PKGS
 	;;
 *)
-	echo "Error: Unsupported distribution '$DISTRO'." >&2
+	echo "install-sys-pkg: unsupported distribution '$DISTRO'" >&2
 	exit 1
 	;;
 esac
 
-echo ":: Installation complete."
+echo ":: Package installation complete."
