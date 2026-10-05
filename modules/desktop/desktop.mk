@@ -21,5 +21,5 @@ DESKTOP_MODULES := restic stow base dev anki keepassxc firefox emacs xclip wirep
 .PHONY: desktop
 desktop: sys-pkgs $(DESKTOP_MODULES)
 	@MODULES_DIR="$(MODULES_DIR)/desktop" dot apply dotfiles
-	@echo "✓ Desktop profile applied successfully."
+	echo "✓ Desktop profile applied successfully."
 endif

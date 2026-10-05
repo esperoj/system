@@ -44,11 +44,11 @@ daily: pre-snap .WAIT sync-workspace sync-backups sync-media .WAIT snap .WAIT cl
 
 info:
 	@echo "======================================================================"
-	@echo " TARGET MACHINE TYPE  : $(MACHINE_TYPE)"
-	@echo " BACKUP TARGET DIR    : $(BACKUP_DIR)"
-	@echo " WORKSPACE DIR        : $(WORKSPACE_DIR)"
-	@echo " VAULT DIR            : $(VAULT_DIR)"
-	@echo "======================================================================"
+	echo " TARGET MACHINE TYPE  : $(MACHINE_TYPE)"
+	echo " BACKUP TARGET DIR    : $(BACKUP_DIR)"
+	echo " WORKSPACE DIR        : $(WORKSPACE_DIR)"
+	echo " VAULT DIR            : $(VAULT_DIR)"
+	echo "======================================================================"
 
 # Streamlined macro: purely handles regular delta operations
 define do_bisync
@@ -65,11 +65,11 @@ endef
 
 sync-workspace: info
 	@echo "--> Syncing Workspace..."
-	@$(call do_bisync,$(WORKSPACE_DIR),$(WORKSPACE_RCLONE_REMOTE))
+	$(call do_bisync,$(WORKSPACE_DIR),$(WORKSPACE_RCLONE_REMOTE))
 
 sync-backups: info
 	@echo "--> Syncing Backups..."
-	@$(call do_bisync,$(BACKUP_DIR),$(BACKUPS_RCLONE_REMOTE))
+	$(call do_bisync,$(BACKUP_DIR),$(BACKUPS_RCLONE_REMOTE))
 
 sync-media: info
 ifeq ($(MACHINE_TYPE),desktop)
@@ -92,19 +92,18 @@ resync: info
 	@echo "--> Performing first-time baseline resync for Workspace..."
 	mkdir -p $(WORKSPACE_DIR)
 	rclone bisync $(WORKSPACE_DIR) $(WORKSPACE_RCLONE_REMOTE) --resync --verbose --fast-list
-
-	@echo "--> Performing first-time baseline resync for Backups..."
+	echo "--> Performing first-time baseline resync for Backups..."
 	mkdir -p $(BACKUP_DIR)
 	rclone bisync $(BACKUP_DIR) $(BACKUPS_RCLONE_REMOTE) --resync --verbose --fast-list
 
 pre-snap: info
 	@mkdir -p $(BACKUP_DIR)
-	@echo "--> Taking pre-sync restic snapshot of BACKUPS folder..."
+	echo "--> Taking pre-sync restic snapshot of BACKUPS folder..."
 	restic backup $(BACKUP_DIR) --verbose --exclude-caches --tag pre-sync
 
 snap: info
 	@mkdir -p $(BACKUP_DIR)
-	@echo "--> Taking post-sync restic snapshot of BACKUPS folder..."
+	echo "--> Taking post-sync restic snapshot of BACKUPS folder..."
 	restic backup $(BACKUP_DIR) --verbose --exclude-caches --tag post-sync
 
 clean: info

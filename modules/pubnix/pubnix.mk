@@ -14,5 +14,5 @@ PUBNIX_MODULES := base dev crontab wireproxy stow
 .PHONY: pubnix
 pubnix: sys-pkgs $(PUBNIX_MODULES)
 	@MODULES_DIR="$(MODULES_DIR)/pubnix" dot apply dotfiles
-	@echo "✓ Pubnix profile applied successfully."
+	echo "✓ Pubnix profile applied successfully."
 endif

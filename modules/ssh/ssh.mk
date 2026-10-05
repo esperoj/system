@@ -10,5 +10,5 @@ TERMUX_PKGS += openssh
 .PHONY: ssh
 ssh: sys-pkgs stow
 	@MODULES_DIR="$(MODULES_DIR)/ssh" dot apply dotfiles
-	@chmod 700 ~/.ssh
+	chmod 700 ~/.ssh
 endif
