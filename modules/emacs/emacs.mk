@@ -10,5 +10,5 @@ TERMUX_PKGS += emacs
 
 .PHONY: emacs
 emacs: sys-pkgs git stow
-	@MODULES_DIR="$(MODULES_DIR)/emacs" dot apply dotfiles
+	@$(stow-module)
 endif

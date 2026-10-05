@@ -2,7 +2,7 @@
 # fetch-bin - Universal POSIX binary installer for direct URLs and GitHub releases
 set -eu
 
-USAGE="Usage: fetch-bin <url|gh:owner/repo> [asset-regex-or-pattern] [binary-name] [dest-path]"
+USAGE="Usage: fetch-bin <url|gh:owner/repo> [asset-regex] [binary-name] [dest-path]"
 [ $# -lt 1 ] && {
 	echo "$USAGE" >&2
 	exit 1
@@ -13,17 +13,13 @@ PATTERN="${2:-}"
 BIN_NAME="${3:-}"
 DEST_PATH="${4:-$HOME/.local/bin}"
 
-# Source the engine.
-# Prefer LIB_DIR if provided by the build system.
-# Otherwise rely on the installed user library path.
-if [ -n "${LIB_DIR:-}" ] && [ -f "${LIB_DIR}/sh/fetch.sh" ]; then
-	. "${LIB_DIR}/sh/fetch.sh"
-elif [ -f "$HOME/.local/lib/sh/fetch.sh" ]; then
-	. "$HOME/.local/lib/sh/fetch.sh"
-else
-	echo "fetch-bin: unable to locate fetch.sh (expected LIB_DIR/sh/fetch.sh or ~/.local/lib/sh/fetch.sh)" >&2
+# Standard library resolution: $LIB_DIR (set by Make) or the installed path.
+LIB="${LIB_DIR:-$HOME/.local/lib}/sh/fetch.sh"
+[ -f "$LIB" ] || {
+	echo "fetch-bin: fetch.sh not found at $LIB (run 'make base' first)" >&2
 	exit 1
-fi
+}
+. "$LIB"
 
 TMP_DIR=$(mktemp -d -t fetch-bin-XXXXXX)
 trap 'rm -rf "${TMP_DIR}"' EXIT
@@ -31,7 +27,6 @@ trap 'rm -rf "${TMP_DIR}"' EXIT
 echo ":: Resolving $SOURCE..."
 URL=$(fetch_resolve_url "$SOURCE" "$PATTERN")
 
-# Infer filename and download
 FILE_NAME=$(basename "${URL%%\?*}")
 ARCHIVE="${TMP_DIR}/${FILE_NAME}"
 
@@ -57,51 +52,33 @@ fi
 
 FOUND_BIN=""
 
-# 1. Prefer exact binary name.
+# 1. Prefer an exact name match anywhere in the archive.
 if [ -n "$BIN_NAME" ]; then
 	FOUND_BIN=$(find "$EXTRACT_DIR" -type f -name "$BIN_NAME" | LC_ALL=C sort | head -n 1)
 fi
 
-# 2. Fallback for raw single-binary archives where the extracted name differs.
+# 2. Otherwise require exactly one candidate: an executable file if the
+#    archive marks any, else the archive's only regular file. Archives with
+#    several plausible files fail loudly with the candidate list.
 if [ -z "$FOUND_BIN" ]; then
-	CANDIDATES=$(find "$EXTRACT_DIR" -type f \
-		! -name "*.txt" \
-		! -name "*.md" \
-		! -name "*.rst" \
-		! -name "LICENSE*" \
-		! -name "COPYING*" \
-		! -name "NOTICE*" \
-		! -name "AUTHORS*" \
-		! -name "CHANGELOG*" \
-		! -name "README*" \
-		! -name "*.asc" \
-		! -name "*.sig" \
-		! -name "*.sha256" \
-		! -name "*.sha512" \
-		! -name "*.sbom" \
-		! -path "*/share/*" \
-		! -path "*/man/*" \
-		! -path "*/doc/*" \
-		! -path "*/completions/*" |
-		LC_ALL=C sort)
+	CANDIDATES=$(find "$EXTRACT_DIR" -type f -perm -u+x | LC_ALL=C sort)
+	[ -n "$CANDIDATES" ] || CANDIDATES=$(find "$EXTRACT_DIR" -type f | LC_ALL=C sort)
 
-	if [ -n "$CANDIDATES" ]; then
-		COUNT=$(printf '%s\n' "$CANDIDATES" | wc -l | tr -d '[:space:]')
+	if [ -z "$CANDIDATES" ]; then
+		echo "fetch-bin: no regular files found in archive" >&2
+		exit 1
+	fi
 
-		if [ "$COUNT" -eq 1 ]; then
-			FOUND_BIN=$(printf '%s\n' "$CANDIDATES" | head -n 1)
-		else
-			echo "fetch-bin: multiple possible binaries found; specify [binary-name] explicitly:" >&2
-			printf '%s\n' "$CANDIDATES" | sed 's/^/  /' >&2
-			exit 1
-		fi
+	COUNT=$(printf '%s\n' "$CANDIDATES" | grep -c .)
+
+	if [ "$COUNT" -eq 1 ]; then
+		FOUND_BIN=$CANDIDATES
+	else
+		echo "fetch-bin: ambiguous archive; specify [binary-name] explicitly:" >&2
+		printf '%s\n' "$CANDIDATES" | sed 's/^/  /' >&2
+		exit 1
 	fi
 fi
-
-[ -n "$FOUND_BIN" ] || {
-	echo "fetch-bin: could not locate target binary '$BIN_NAME' in archive" >&2
-	exit 1
-}
 
 # Install to destination
 mkdir -p "$(dirname "$DEST_PATH")"

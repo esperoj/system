@@ -7,5 +7,5 @@ COMMON_PKGS += bash
 
 .PHONY: shell
 shell: sys-pkgs stow
-	@MODULES_DIR="$(MODULES_DIR)/shell" dot apply dotfiles
+	@$(stow-module)
 endif

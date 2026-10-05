@@ -5,5 +5,5 @@ include modules/stow/stow.mk
 
 .PHONY: recipes
 recipes: sys-pkgs stow
-	@MODULES_DIR="$(MODULES_DIR)/recipes" dot apply dotfiles
+	@$(stow-module)
 endif

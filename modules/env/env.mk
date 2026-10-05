@@ -5,5 +5,5 @@ include modules/stow/stow.mk
 
 .PHONY: env
 env: sys-pkgs stow
-	@MODULES_DIR="$(MODULES_DIR)/env" dot apply dotfiles
+	@$(stow-module)
 endif

@@ -8,6 +8,6 @@ TERMUX_PKGS += cronie
 
 .PHONY: crontab
 crontab: sys-pkgs stow
-	@MODULES_DIR="$(MODULES_DIR)/crontab" dot apply dotfiles
+	@$(stow-module)
 	crontab "$${HOME}/.config/crontab/crontab"
 endif

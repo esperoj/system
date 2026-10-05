@@ -9,5 +9,5 @@ TERMUX_PKGS += clang make python nodejs-lts
 
 .PHONY: dev
 dev: sys-pkgs stow
-	@MODULES_DIR="$(MODULES_DIR)/dev" dot apply dotfiles
+	@$(stow-module)
 endif

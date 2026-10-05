@@ -1,19 +1,12 @@
 #!/bin/sh
 # install-sys-pkg - standalone or batch package installer
 set -eu
-
-# Source os.sh directly (operates independently outside Make)
-if [ -n "${LIB_DIR:-}" ] && [ -f "${LIB_DIR}/sh/os.sh" ]; then
-	. "${LIB_DIR}/sh/os.sh"
-elif [ -f "$HOME/.local/lib/sh/os.sh" ]; then
-	. "$HOME/.local/lib/sh/os.sh"
-elif [ -f "./modules/lib/dotfiles/.local/lib/sh/os.sh" ]; then
-	. "./modules/lib/dotfiles/.local/lib/sh/os.sh"
-else
-	echo "install-sys-pkg: unable to locate os.sh" >&2
+LIB="${LIB_DIR:-$HOME/.local/lib}/sh/os.sh"
+[ -f "$LIB" ] || {
+	echo "<script>: os.sh not found at $LIB (run 'make base' first)" >&2
 	exit 1
-fi
-
+}
+. "$LIB"
 # Determine packages to install
 if [ $# -gt 0 ]; then
 	PKGS="$*"

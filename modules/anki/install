@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
-# 1. Source OS & Architecture detection
-if [ -n "${LIB_DIR:-}" ] && [ -f "${LIB_DIR}/sh/os.sh" ]; then
-	. "${LIB_DIR}/sh/os.sh"
-elif [ -f "$HOME/.local/lib/sh/os.sh" ]; then
-	. "$HOME/.local/lib/sh/os.sh"
-fi
-
+LIB="${LIB_DIR:-$HOME/.local/lib}/sh/os.sh"
+[ -f "$LIB" ] || {
+	echo "<script>: os.sh not found at $LIB (run 'make base' first)" >&2
+	exit 1
+}
+. "$LIB"
 . "${LIB_DIR:-$HOME/.local/lib}/sh/fetch.sh"
 
 PREFIX="${HOME}/.local"
