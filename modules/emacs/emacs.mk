@@ -5,7 +5,7 @@ include modules/stow/stow.mk
 include modules/git/git.mk
 
 COMMON_PKGS += pandoc
-DEBIAN_PKGS += emacs-gtk elpa-markdown-mode elpa-magit elpa-yaml-mode elpa-treesit-auto
+DEBIAN_PKGS += emacs-gtk elpa-markdown-mode elpa-magit elpa-yaml-mode
 TERMUX_PKGS += emacs
 
 .PHONY: emacs

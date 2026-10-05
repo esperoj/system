@@ -1,4 +1,4 @@
-# System Architecture & Sovereign Node Specification
+# Sovereign Computing Environment & Node Specification
 
 ## 1. Meta-Directive & Core Philosophy
 
@@ -6,18 +6,18 @@ This computing environment is a personal sovereign system designed to remain und
 
 The system is pragmatic, not ideological.
 
-Longevity, simplicity, safety, and flow are still the main goals, but when a pragmatic choice reduces real friction, avoids fragile workarounds, or lowers maintenance cost, that choice is accepted.
+Longevity, simplicity, safety, and flow are the primary constraints. When a pragmatic choice reduces real friction, avoids fragile abstractions, or lowers long-term maintenance cost, that choice is accepted.
 
 ```text
 FIRST PRINCIPLES                 DERIVED ARCHITECTURAL INVARIANTS
 ┌───────────────────────────┐    ┌───────────────────────────────────────────────┐
-│ 1. Pragmatic Longevity    │───>│ Boring UNIX tooling; avoid fragile frameworks │
+│ 1. Pragmatic Longevity    │───>│ Plain GNU Make & POSIX sh; no framework churn │
 ├───────────────────────────┤    ├───────────────────────────────────────────────┤
-│ 2. Anti-Complexity        │───>│ Low cognitive overhead; inspectable text state│
+│ 2. Anti-Complexity        │───>│ In-memory Make DAG; no state daemon/flat DB  │
 ├───────────────────────────┤    ├───────────────────────────────────────────────┤
-│ 3. Structural Safety      │───>│ Clear trust boundaries; explicit encryption   │
+│ 3. Structural Safety      │───>│ Explicit permissions; offline-first bootstrap │
 ├───────────────────────────┤    ├───────────────────────────────────────────────┤
-│ 4. Pragmatic Flow         │───>│ Immediate daily use; avoid recurring friction │
+│ 4. Pragmatic Flow         │───>│ Immediate execution; single-command handoff   │
 └───────────────────────────┘    └───────────────────────────────────────────────┘
 ```
 
@@ -25,477 +25,269 @@ FIRST PRINCIPLES                 DERIVED ARCHITECTURAL INVARIANTS
 
 ### Axiom 1: Pragmatic Longevity
 
-Code, formats, and tooling should remain readable and executable for decades.
+Code, formats, and tooling must remain readable and executable for decades.
 
 Preferred foundations:
-
 - POSIX shell
 - GNU Make
 - Git
-- plain text
+- Plain text
 - GNU Stow
-- standard UNIX utilities
+- Standard UNIX utilities
 
-Pragmatic allowances:
-
-- Bash is allowed when it is clearer, more maintainable, or necessary.
-- If a target environment lacks Bash but Bash is the pragmatic choice, install Bash rather than forcing awkward POSIX-only workarounds.
-- GNU Make features are accepted when the supported baseline provides them.
-- Hosted APIs are not forbidden. If a stable API is simpler and less fragile than scraping or custom workaround logic, using it is fine.
-
-What is still avoided:
-
-- ephemeral configuration frameworks
-- overly abstract dotfile managers
-- fragile package managers that constantly break on upstream changes
-- unnecessary platform lock-in
-- formats that cannot be inspected with normal text tools
+What is avoided:
+- Ephemeral configuration frameworks
+- Complex dotfile engines with non-standard DSLs
+- Unnecessary daemon layers for state storage
+- Formats that cannot be inspected with standard text utilities (`cat`, `find`, `grep`)
 
 ---
 
 ### Axiom 2: Anti-Complexity
 
-The operator should be able to hold the system state in their head and inspect it with standard utilities:
-
-```sh
-cat
-ls
-grep
-find
-git
-make
-```
-
-Preferred state model:
-
-- caches and build artifacts are disposable
-- configuration state lives in flat text files
-- generated state is small and replaceable
-- no opaque databases for daily configuration
-
-Pragmatic allowances:
-
-- explicit supervised services are acceptable when a long-running process is genuinely required
-- tools like `runit` are acceptable because they are small, explicit, and inspectable
-- tmux remains an interactive tool, not a service manager
-
-What is still avoided:
-
-- hidden background state
-- unmanaged daemon hacks
-- complex service frameworks where a small supervisor is enough
-- nested boilerplate that obscures what is actually deployed
+The operator should be able to hold the entire build model in memory:
+- **No external state database:** No Redis, no bespoke flat-file state buses. System state lives directly in the filesystem and within the GNU Make dependency graph.
+- **Single-phase evaluation:** No awkward multi-phase configure dances. Targets evaluate on demand in a single invocation.
+- **Disposable cache:** Ephemeral state is restricted strictly to the `.state/` directory and can be purged at any moment without corrupting the repository.
 
 ---
 
 ### Axiom 3: Structural Safety
 
-Resilience comes from clear boundaries and explicit operations.
-
-Core safety model:
-
-- full-disk encryption protects the local machine at rest
-  - LUKS on Linux desktop
-  - Android File-Based Encryption on Termux/Android
-- cold offsite backups are encrypted with `age`
-- encryption is applied explicitly when data crosses a network boundary
-- permissions are enforced structurally where possible
-
-Accepted personal tradeoffs:
-
-- the private vault may sync to a trusted VPS unencrypted
-- Docker images may use passwordless sudo when the container is a personal single-user environment
-- binary downloads do not require mandatory checksum or signature verification unless the threat model changes
-
-These tradeoffs are accepted because the alternative complexity is not worth the cost for a personal sovereign system.
+Resilience comes from clear boundaries, explicit dependencies, and offline survivability:
+- **Offline-first bootstrap:** System bootstrap does not assume active network access or established SSH keys.
+- **Local perimeter security:** Full-disk encryption (LUKS on desktop, Android FBE on mobile) protects data at rest.
+- **Strict permissions:** Private credentials and keys are programmatically clamped to `0700` (directories/executables) and `0600` (files).
+- **Transport encryption:** Offsite backups are streamed through `tar | age`.
 
 ---
 
 ### Axiom 4: Pragmatic Flow
 
-Daily interactive tooling must be immediate, transparent, and low-friction.
-
-Rules:
-
-- shell login should be fast
-- `.profile` should not perform package builds
-- `.profile` should not run stow
-- `.profile` should not prompt for decryption
-- `.profile` should not make network calls
-- daily Git work should be simple and tactile, preferably through Emacs Magit
-
-Pragmatic allowances:
-
-- a small amount of setup-time complexity is acceptable if it removes repeated daily friction
-- explicit commands are preferred over magical automation
-- if a choice makes the system easier to operate for years, it is preferred over theoretical purity
+Daily interactive tooling must be immediate, transparent, and low-friction:
+- Shell startup (`.profile`, `.bashrc`) performs zero package compilation, network calls, or stow linking.
+- Fast, cached, idempotent builds: if configuration has not changed, running a target finishes in milliseconds.
+- Standalone CLI utilities: scripts like `install-sys-pkg` and `fetch-bin` work directly from the terminal without requiring Make orchestration.
 
 ---
 
-## 2. Accepted Pragmatic Tradeoffs
-
-These choices are explicitly accepted.
-
-| Area | Accepted Choice | Reason |
-|---|---|---|
-| GitHub API | GitHub REST API usage is fine when practical | Simpler and more reliable than brittle HTML scraping |
-| Shell | Bash is allowed where useful | Better ergonomics and maintainability when POSIX sh becomes awkward |
-| GNU Make | Modern GNU Make features are accepted | Primary targets are current Debian systems and future Debian releases |
-| Alpine / FreeBSD | Potential future targets, not current priority | No need to carry compatibility complexity yet |
-| Vault sync | Unencrypted vault sync to private VPS is accepted | Personal trust model; encrypted remote vault state adds too much pain |
-| Docker sudo | Passwordless sudo inside personal container images is accepted | Single-user personal environment |
-| Binary downloads | No mandatory checksum/signature verification by default | Personal threat model; may be revisited if needed |
-| Emacs | System-provided packages preferred; no MELPA startup fetching | Offline-first and lower long-term fragility |
-| Services | `runit` is preferred over tmux sessions for long-running services | Explicit supervision, restart behavior, and cleaner control |
-| Termux | Use Termux packages where available | Avoid unnecessary binary fetching when the package manager is sufficient |
-
----
-
-## 3. Implementation Derivation Matrix
-
-| Architectural Component | Implementation Choice | Governing Principle | Rationale |
-|---|---|---|---|
-| Build engine | `./configure` + GNU Make | Pragmatic longevity | Native, boring, scriptable, and widely understood |
-| State bus | flat-file `kv` store | Anti-complexity | Redis-inspired state without running a database daemon |
-| Package delivery | apt / pkg / `fetch-bin` tiers | Pragmatic longevity | System packages where sensible, user-space binaries where needed |
-| Binary fetcher | direct URLs, redirects, and GitHub REST API when practical | Pragmatic longevity | API use is accepted when it is simpler than scraping |
-| Vault storage | unencrypted Git at `~/.vault` | Pragmatic safety | Local disk encryption is the main perimeter; personal VPS is trusted |
-| Remote vault sync | bare Git repository over SSH | Anti-complexity | Native Git mechanics; no custom sync daemon |
-| Dotfile linking | GNU Stow via `dot` wrapper | Anti-complexity | Standard symlinks, inspectable and removable |
-| Offsite backups | streaming `tar | age` | Structural safety | Encryption applied explicitly when crossing network boundaries |
-| Service supervision | `runit` when services are needed | Pragmatic flow | Explicit and rootless-capable; better than tmux service hacks |
-| Emacs | built-ins plus system packages | Pragmatic flow | Offline-first, low moving-target dependency |
-
----
-
-## 4. Subsystem Architecture
-
-### 4.1 The State Bus: Flat `kv`
-
-The `./configure` script probes the host node and populates `.kv-store`.
-
-The `kv` tool is a flat-file key-value store inspired by Redis. It is not a full Redis implementation and does not attempt to speak the Redis wire protocol. Its purpose is simple declarative state for build and provisioning logic.
-
-Storage scheme:
+## 2. Architecture & Invariants
 
 ```text
-.kv-store/strings/<key>
-.kv-store/sets/<set_name>/<member>
-.kv-store/hashes/<hash_name>/<field>
+┌────────────────────────────────────────────────────────┐
+│ MAKE LAYER (OS-Agnostic Graph & Set Accumulation)      │
+│                                                        │
+│  - Goal inclusion: make desktop -> desktop.mk          │
+│  - Include guards: ifndef MOD_GIT                      │
+│  - Set accumulation: COMMON_PKGS += ..., DEBIAN_PKGS +=│
+│  - Dependency graph: emacs: sys-pkgs git stow          │
+│  - Cache invalidation: .state/sys-pkgs.stamp           │
+└───────────────────────────┬────────────────────────────┘
+                            │ export COMMON_PKGS DEBIAN_PKGS ...
+                            ▼
+┌────────────────────────────────────────────────────────┐
+│ SHELL SCRIPT LAYER (Host-Aware Execution)              │
+│                                                        │
+│  - install-sys-pkg: sources os.sh                      │
+│  - Standalone CLI: install-sys-pkg ripgrep fd-find     │
+│  - Batch Mode: install-sys-pkg (reads exported vars)   │
+└────────────────────────────────────────────────────────┘
 ```
 
-Design goals:
+### 2.1 Pure Make DAG & Goal-Driven Includes
 
-- no daemon
-- no database file
-- inspectable with `ls`, `cat`, `find`
-- safe for bulk package batching
-- line-oriented output for shell pipelines
+The build system relies on native GNU Make Directed Acyclic Graphs (DAG) and in-memory set accumulation:
+1. When invoking `make <target>`, Make includes only `modules/<target>/<target>.mk`.
+2. Target modules recursively pull their dependencies via `include` directives protected by `ifndef MOD_<NAME>` include guards.
+3. Modules not in the target's dependency tree are never parsed. Their packages never leak into the build.
+4. Duplicate dependencies evaluate exactly once, preserving parallel build safety under `-j`.
 
-Typical commands:
+### 2.2 Distro Package Accumulation (Zero-Condition Declarations)
 
-```sh
-kv SET <key> <value>
-kv GET <key>
-kv DEL <key>
+Modules do not contain repetitive `ifeq ($(DISTRO),...)` blocks. They append package requirements to flat, distro-specific variables:
 
-kv SADD <set> <member...>
-kv SMEMBERS <set>
-kv SREM <set> <member...>
-kv SISMEMBER <set> <member>
-kv SCARD <set>
-
-kv HSET <hash> <field> <value>
-kv HGET <hash> <field>
-kv HKEYS <hash>
-
-kv KEYS [pattern]
-kv EXISTS <key>
+```makefile
+COMMON_PKGS += pandoc
+DEBIAN_PKGS += emacs-gtk elpa-magit
+TERMUX_PKGS += emacs
 ```
 
-Output conventions:
+The root `Makefile` exports these variables to subprocesses.
 
-- `SMEMBERS` prints one member per line
-- `KEYS` prints one key per line
-- `MGET` prints one value per line
-- missing `MGET` values are represented as empty lines
-- exact Redis textual output is not a goal
-- shell usability is the goal
+### 2.3 The `sys-pkgs` Barrier & Cache Invalidation
 
-Example:
+System package installation is governed by a hidden stamp file:
 
-```sh
-install-sys-pkg $(kv SMEMBERS debian-pkgs)
+```makefile
+$(STATE_DIR)/sys-pkgs.stamp: $(MAKEFILE_LIST)
+	@mkdir -p $(STATE_DIR)
+	@install-sys-pkg
+	@touch $@
+
+.PHONY: sys-pkgs
+sys-pkgs: $(STATE_DIR)/sys-pkgs.stamp
 ```
+
+- **Self-Healing Timestamp Checking:** `.state/sys-pkgs.stamp` depends directly on `$(MAKEFILE_LIST)`. If any loaded module file is edited, Make detects the newer timestamp and executes `install-sys-pkg`.
+- **Instant No-Op:** If no module makefile has changed, `sys-pkgs` resolves in 0.001 seconds.
+- **Explicit Target Prerequisites:** Modules explicitly declare `sys-pkgs` (e.g., `emacs: sys-pkgs git stow`), guaranteeing packages exist before dotfiles are linked or scripts are run.
 
 ---
 
-### 4.2 The 3-Tier Package Delivery Engine
+## 3. Package Delivery Subsystem
 
-The system separates stable system packages from user-space binaries.
+### 3.1 `install-sys-pkg` (Dual-Mode Installer)
 
-```text
-┌────────────────────────────────────────────────────────────────────────┐
-│                        PACKAGE DELIVERY PIPELINE                       │
-├──────────────────────────┬─────────────────────────┬───────────────────┤
-│ Tier 1: Debian/Ubuntu    │ Tier 2: Android/Termux  │ Tier 3: Pubnix    │
-│ Bulk apt-get             │ Bulk pkg install        │ fetch-bin         │
-│ System infrastructure    │ User-space Termux env   │ ~/.local/bin      │
-└──────────────────────────┴─────────────────────────┴───────────────────┘
-```
+The system package delivery tool operates in two distinct modes:
 
-Rules:
+1. **Batch Mode (Called by Make):**
+   Invoked with no arguments. It auto-detects `$DISTRO` via `os.sh`, resolves the matching `$DEBIAN_PKGS`, `$TERMUX_PKGS`, or `$ALPINE_PKGS` set alongside `$COMMON_PKGS`, deduplicates the union, and runs the package manager.
+2. **Standalone Mode (Interactive CLI):**
+   Invoked with arguments directly by the operator:
+   ```sh
+   install-sys-pkg ripgrep tmux fzf
+   ```
+   It auto-detects the host distro and executes the underlying package manager (`apt-get`, `pkg`, `apk`, or BSD `pkg`) with privilege escalation where appropriate.
 
-1. Use system packages when they are stable and sufficient.
-2. Use Termux packages on Android/Termux when available.
-3. Use `fetch-bin` for:
-   - rootless environments
-   - fast-moving tools
-   - tools not packaged well by the system package manager
-   - user-local installations under `~/.local/bin`
+### 3.2 `fetch-bin` (User-Space Binary Fallback)
 
-`fetch-bin` supports:
-
-- direct HTTP/HTTPS URLs
-- GitHub repositories using `gh:owner/repo`
-- asset regex or pattern matching
-- archive extraction for common formats
-- installation into `~/.local/bin`
-
-For GitHub releases, `fetch-bin` may use the GitHub REST API when that is simpler and more reliable than scraping HTML. This is accepted. Personal usage generally stays within reasonable API limits, and simplicity is preferred over ideological API avoidance.
+Used for rootless environments (Pubnix), fast-moving CLI tools, or packages missing from base distribution repositories:
+- Direct HTTP/HTTPS URLs.
+- GitHub releases via `gh:owner/repo` pattern matching.
+- Automatic archive extraction (`tar.gz`, `tar.xz`, `tar.zst`, `zip`, `bz2`).
+- Installs standalone executables directly to `~/.local/bin`.
 
 ---
 
-### 4.3 Sovereign Vault (`~/.vault`)
+## 4. Sovereign Vault Subsystem (`~/.vault`)
 
-Private keys, credentials, and sensitive configuration live in an unencrypted Git repository at:
-
-```text
-~/.vault
-```
-
-This is intentional.
-
-Security model:
-
-- local full-disk encryption is the primary perimeter
-- the vault is kept unencrypted locally for speed and simplicity
-- permissions are enforced automatically
-- cold offsite backups are encrypted with `age`
-
-Vault layout:
+Sensitive configurations, private credentials, and personal keys reside in an unencrypted Git repository at:
 
 ```text
 ~/.vault/
-├── ssh/
-├── rclone/
-├── wireproxy/
-├── _keys/
-└── ...
 ```
 
-Top-level directories are Stow packages unless explicitly prefixed as private non-stow storage.
+### 4.1 Solving the SSH Chicken-and-Egg Dilemma
 
-Permission invariant:
+On a fresh node, you cannot clone `~/.vault` over SSH because the SSH private key required to authenticate against the server is stored *inside* the vault itself.
 
-```text
-directories: 0700
-files:       0600
-executables: 0700
-```
+`modules/vault/setup` handles this structurally:
 
-This is enforced by:
+1. **Raw Seed / Cold Backup (Recommended for new nodes):**
+   Unpack a cold backup archive into `~/.vault`:
+   ```sh
+   backup restore /path/to/vault-seed.tar.gz.age ~/.vault
+   ```
+   When `make vault` or `make desktop` runs, `vault/setup` detects raw files without `.git`, initializes a local repository (`git -C ~/.vault init -b main`), attaches the remote `origin`, locks permissions, and applies dotfiles. **Zero network calls are made.**
+2. **Existing Clone:**
+   If `~/.vault/.git` is present, it updates the remote URL, enforces permissions, and applies modules.
+3. **Network Clone:**
+   If `~/.vault` is empty and SSH credentials are provided (e.g., via agent forwarding `ssh -A`), it clones from the remote VPS.
 
+### 4.2 Permission Enforcement
+
+All vault files are programmatically locked to prevent permission leaks:
+- Directories: `0700`
+- Regular files: `0600`
+- Executable files: `0700`
+
+Manual enforcement:
 ```sh
 vault chmod
 ```
 
-VPS synchronization:
+### 4.3 Applying Vault Modules
 
-```sh
-vault sync
+Profiles declare the vault modules they require using standard variable accumulation:
+
+```makefile
+VAULT_MODULES += ssh base git rclone
 ```
 
-The remote repository is a bare Git repository on a private VPS:
-
-```text
-repos:srv/git/vault.git
-```
-
-The VPS copy is accepted as plaintext because it is a personal trusted system. If the threat model changes, remote encryption can be revisited.
-
----
-
-### 4.4 Service Management
-
-Long-running user services should be supervised explicitly.
-
-Preferred supervisor:
-
-```text
-runit
-```
-
-Reasons:
-
-- small
-- stable
-- explicit
-- rootless-capable
-- easy to inspect
-- automatic restart on crash
-- standard `up/down/status` control
-
-Tmux is not treated as a service manager.
-
-User-level layout:
-
-```text
-~/.config/sv/<service>/run
-~/.service/<service> -> ~/.config/sv/<service>
-~/.local/state/runit/
-```
-
-Control examples:
-
-```sh
-sv up ~/.service/wireproxy
-sv down ~/.service/wireproxy
-sv status ~/.service/wireproxy
-```
-
-Rootless behavior:
-
-- user services can run without root
-- privileged system services still require root or sudo
-- SSH daemon control remains system-level
-- user SSH tunnels can be supervised as a normal user
-
----
-
-### 4.5 Emacs
-
-Emacs is configured as a practical offline-first development environment.
-
-Preferred foundations:
-
-- built-in Emacs features
-- `project.el`
-- `eglot`
-- `treesit` where practical
-- Magit for Git workflows
-- system-provided Emacs Lisp packages where possible
-
-Avoided:
-
-- MELPA fetching at startup
-- network-dependent package installation as a core workflow
-- fragile third-party package managers inside Emacs
-
-If a package is needed, prefer:
-
-1. built-in Emacs functionality
-2. Debian/ELPA system package
-3. Termux package
-4. vendored file if truly necessary
+`vault/setup` reads `$VAULT_MODULES` directly from the environment and executes `vault apply <mod>` via GNU Stow.
 
 ---
 
 ## 5. Repository Layout
 
-Primary layout:
-
 ```text
 .
-├── configure                     # Probe host and generate kv state
-├── Makefile                      # Declarative build runner
-├── Dockerfile                    # Container base image target
+├── bootstrap                     # Zero-to-Make minimal host primer
+├── Makefile                      # Dynamic DAG builder and package orchestrator
+├── Dockerfile                    # Debian 13-slim container specification
+├── .state/                       # Ephemeral build stamps and state (git-ignored)
 └── modules/
-    ├── base/                     # Core dependencies
-    ├── bin/                      # CLI tools: kv, dot, vault, fetch-bin, backup
-    ├── crontab/                  # Cron table management
-    ├── desktop/                  # Desktop environment config
-    ├── dev/                      # Development tooling
-    ├── emacs/                    # Emacs configuration
-    ├── env/                      # Base environment files
-    ├── lib/                      # Shared shell libraries
-    ├── phone/                    # Termux/Android profile
-    ├── pubnix/                   # Rootless shared UNIX profile
-    ├── recipes/                  # Make recipes such as backup.mk
-    ├── shell/                    # .profile, .bashrc, .inputrc
-    ├── ssh/                      # Public SSH material
-    ├── stow/                     # GNU Stow bootstrap
-    ├── sys-pkgs/                 # System package batching
-    ├── vault/                    # Vault setup hooks
-    └── wireproxy/                # WireProxy configuration
+    ├── base/                     # Core OS dependencies, recipes, and utilities
+    ├── bin/                      # System binaries: dot, install-sys-pkg, backup, vault, fetch-bin
+    ├── crontab/                  # Automated scheduled maintenance
+    ├── desktop/                  # Debian desktop GUI node profile
+    ├── dev/                      # Compilers, linters, shells, and editor tools
+    ├── docker-base/              # Container base environment profile
+    ├── emacs/                    # Offline-first GNU Emacs IDE
+    ├── env/                      # Base environment variables (~/.config/env)
+    ├── lib/                      # Shared shell libraries (os.sh, fetch.sh)
+    ├── phone/                    # Termux mobile node profile
+    ├── pubnix/                   # Rootless shared UNIX node profile
+    ├── recipes/                  # Standalone maintenance Makefiles (backup.mk)
+    ├── shell/                    # .bashrc, .profile, .inputrc
+    ├── ssh/                      # Public SSH keys and configurations
+    ├── stow/                     # GNU Stow bootstrap and wrappers
+    ├── vault/                    # Sovereign vault setup hooks
+    └── wireproxy/                # Wireguard userspace proxy
+```
+
+Each module is self-contained:
+
+```text
+modules/<name>/
+├── <name>.mk                     # Declarative rules, packages, and include guards
+├── dotfiles/                     # Files symlinked to target by GNU Stow
+└── install                       # User-space binary fetcher script (if needed)
 ```
 
 ---
 
-## 6. Node Commissioning & Bootstrap Manual
+## 6. Node Commissioning Manual
 
 ### 6.1 Preparing the Trust Root
 
-A new node cannot pull its cryptographic identity out of thin air.
+Choose one of two root-of-trust bootstrap paths:
 
-Choose one trust root:
-
-#### Method A: Networked / SSH Agent
-
-If setting up remotely from an existing machine:
-
-```sh
-ssh -A user@new-node
-```
-
-#### Method B: Offline / Cold Seed
-
-Create an encrypted vault archive from an established node:
-
+#### Path A: Cold Seed (Offline / Air-Gapped)
+On an existing authorized machine, create an encrypted vault backup:
 ```sh
 backup create ~/.vault ~/vault-seed.tar.gz.age
 ```
+Transfer `vault-seed.tar.gz.age` and your `age` secret key to the target node via USB.
 
-Transfer:
-
-- `vault-seed.tar.gz.age`
-- your `age` identity key
-
-to the target machine using USB or another local transfer method.
+#### Path B: SSH Agent Forwarding (Remote Provisioning)
+Connect to the clean node while forwarding your active SSH agent:
+```sh
+ssh -A user@target-node
+```
 
 ---
 
-### 6.2 Desktop Node Bootstrap
+### 6.2 Desktop Node (Debian 13+)
 
-Target:
-
-- Debian desktop
-- LUKS full-disk encryption
-- normal user with sudo
+Target: Physical workstation, LUKS encryption, non-root user with `sudo`.
 
 ```sh
-# 1. Install bootstrap dependencies
-sudo apt-get update && sudo apt-get install -y git make curl ca-certificates
-
-# 2. Clone system repository
+# 1. Unpack or clone system repository
 mkdir -p ~/projects
 git clone <SYSTEM_REPO_URL> ~/projects/system
 cd ~/projects/system
 
-# 3. Configure and build
-./configure desktop
-make desktop
-
-# 4. Provision vault
-# Option A: SSH identity
-mkdir -p ~/.ssh && chmod 700 ~/.ssh
-cp /path/to/id_ed25519 ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
-vault init repos:srv/git/vault.git
-
-# Option B: cold backup
+# 2. If bootstrapping via Cold Seed: restore vault files before running make
 backup restore /path/to/vault-seed.tar.gz.age ~/.vault
-vault chmod
-vault apply ssh rclone wireproxy
+
+# 3. Prime host and deploy desktop profile in one step
+./bootstrap desktop
+
+# 4. If bootstrapping via SSH Agent Forwarding (no cold seed used):
+# Initialize vault from remote bare repo
+vault init repos:srv/git/vault.git
+make vault
 
 # 5. Reload session
 exec bash -l
@@ -503,32 +295,24 @@ exec bash -l
 
 ---
 
-### 6.3 Mobile Node Bootstrap
+### 6.3 Mobile Node (Android / Termux)
 
-Target:
-
-- Android
-- Termux
-- Android File-Based Encryption
+Target: Android device, Termux user-space environment.
 
 ```sh
-# 1. Initialize storage and bootstrap tools
+# 1. Initialize Termux storage
 termux-setup-storage
-pkg update -y && pkg install -y git make curl
 
 # 2. Clone repository
 mkdir -p ~/projects
 git clone <SYSTEM_REPO_URL> ~/projects/system
 cd ~/projects/system
 
-# 3. Configure and build
-./configure phone
-make phone
-
-# 4. Restore vault
+# 3. Restore cold vault backup from shared storage
 backup restore /sdcard/Download/vault-seed.tar.gz.age ~/.vault
-vault chmod
-vault apply ssh phone-sync
+
+# 4. Prime host and deploy phone profile
+./bootstrap phone
 
 # 5. Reload session
 exec bash -l
@@ -536,106 +320,134 @@ exec bash -l
 
 ---
 
-### 6.4 Pubnix Node Bootstrap
+### 6.4 Container Node (Docker Base)
 
-Target:
+Target: Minimal headless Debian 13 container.
 
-- shared rootless UNIX host
-- no master identity keys unless explicitly required
+Build image:
+```sh
+docker build -t system:base .
+```
 
-Advisory:
+Run container:
+```sh
+docker run -it --rm system:base
+```
 
-> Never deploy master identity keys to shared hosts unless you fully trust the host and understand the consequences.
+The container automatically invokes `./bootstrap docker-base`, prunes APT recommends and cache, and sets up a non-root sovereign environment.
+
+---
+
+### 6.5 Pubnix Node (Shared Rootless UNIX)
+
+Target: Multi-user tilde server, no root access.
 
 ```sh
-# 1. Connect to pubnix host
-ssh user@tilde.team
-
-# 2. Clone repository
+# 1. Clone repository
 mkdir -p ~/projects
 git clone <SYSTEM_REPO_URL> ~/projects/system
 cd ~/projects/system
 
-# 3. Configure and build
-./configure pubnix
-make pubnix
+# 2. Bootstrap pubnix profile (runs user-space stow, skips sudo apt)
+./bootstrap pubnix
 
-# 4. Initialize isolated vault
-vault init
-vault apply pubnix-env
+# 3. Reload session
+exec bash -l
 ```
 
 ---
 
 ## 7. Daily Operator Workflows
 
-### Synchronize Vault
+### Target Execution & Updates
 
+Deploy or update profiles:
+```sh
+cd ~/projects/system
+git pull --rebase
+make desktop        # Or: make phone, make docker-base, make pubnix
+```
+
+Deploy or test an isolated submodule:
+```sh
+make emacs
+make git
+make dev
+```
+
+Inspect the dry-run execution graph:
+```sh
+make -n desktop
+```
+
+---
+
+### Package Cache Management
+
+Force a complete re-evaluation and reinstallation of system packages:
+```sh
+make clean-state
+make desktop
+```
+
+Install an ad-hoc system package outside of Make:
+```sh
+install-sys-pkg ripgrep
+```
+
+---
+
+### Sovereign Vault Operations
+
+Synchronize uncommitted vault state with the trusted private VPS:
 ```sh
 vault sync
 ```
 
----
-
-### Update System Modules
-
+Inspect vault status and module links:
 ```sh
-cd ~/projects/system
-git pull --rebase
-./configure <target>
-make <target>
+vault status
+```
+
+Enforce strict 600/700 permissions:
+```sh
+vault chmod
+```
+
+Spawn a subshell inside the vault:
+```sh
+vault cd
 ```
 
 ---
 
-### Create Encrypted Offsite Backup
+### Encrypted Cold Backups
 
+Create a streaming encrypted archive of the vault:
 ```sh
 backup create ~/.vault ~/backups/vault-$(date +%F).tar.gz.age
 ```
 
----
-
-### Restore From Cold Storage
-
+Restore an encrypted archive:
 ```sh
-backup restore ~/backups/vault-2026-10-01.tar.gz.age ~/.vault
+backup restore ~/backups/vault-2026-10-05.tar.gz.age ~/.vault
 ```
 
 ---
 
-### Manage User Services
+### Code Quality & Maintenance
 
-For runit-managed services:
-
+Verify shell scripts with ShellCheck and shfmt:
 ```sh
-sv status ~/.service/<service>
-sv up ~/.service/<service>
-sv down ~/.service/<service>
+make lint
 ```
 
-Examples:
-
+Format all repository shell scripts in place:
 ```sh
-sv up ~/.service/wireproxy
-sv down ~/.service/wireproxy
-sv status ~/.service/wireproxy
+make fmt
 ```
 
----
-
-## 8. Supported Targets
-
-Primary current targets:
-
-- Debian desktop
-- Termux phone
-- Docker base environment
-- personal pubnix hosts
-
-Potential future targets:
-
-- Alpine
-- FreeBSD
-
-Alpine and FreeBSD are not active compatibility targets right now. Compatibility complexity for them is intentionally avoided until there is a real need.
+Run an automated design review using Aider:
+```sh
+make review
+```
