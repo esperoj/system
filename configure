@@ -7,5 +7,5 @@ if [ $# -eq 0 ]; then
 	exit 1
 fi
 
-echo ":: './configure $@' -> invoking 'make $@' directly..."
+echo ":: './configure $*' -> invoking 'make $*' directly..."
 exec make "$@"
