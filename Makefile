@@ -1,28 +1,45 @@
 .ONESHELL:
-.SHELLFLAGS = -e -c
+.SHELLFLAGS = -eu -c
 MAKEFLAGS   += -j
 SHELL       := /bin/sh
 .DEFAULT_GOAL := help
 .DELETE_ON_ERROR:
 
 MODULES_DIR := $(CURDIR)/modules
+STATE_DIR   := $(CURDIR)/.state
 BIN_DIR     := $(MODULES_DIR)/bin/dotfiles/.local/bin
 LIB_DIR     := $(MODULES_DIR)/lib/dotfiles/.local/lib
 PATH        := $(BIN_DIR):$(HOME)/.local/bin:$(PATH)
-KV_STORE    := $(CURDIR)/.kv-store
-LC_ALL      := C
-export PATH LIB_DIR KV_STORE LC_ALL
 
--include $(MODULES_DIR)/*/Makefile
+export PATH LIB_DIR MODULES_DIR STATE_DIR
 
-# --- Shared Shell Script Finder (DRY) ---
-# Safely finds all shell scripts, entrypoints, and library files
+# --- Goal-Driven Dynamic Inclusion ---
+# Includes only the module matching the invoked target (e.g., make desktop -> modules/desktop/desktop.mk)
+# Submodules recursively include their own dependencies with ifndef guards.
+GOALS := $(if $(MAKECMDGOALS),$(MAKECMDGOALS),help)
+$(foreach g,$(GOALS),$(eval -include modules/$(g)/$(g).mk))
+
+# --- Export Accumulated Sets to Subprocesses ---
+export COMMON_PKGS DEBIAN_PKGS TERMUX_PKGS ALPINE_PKGS FREEBSD_PKGS VAULT_MODULES
+
+# --- System Package Barrier ---
+$(STATE_DIR)/sys-pkgs.stamp: $(MAKEFILE_LIST)
+	@mkdir -p $(STATE_DIR)
+	@install-sys-pkg
+	@touch $@
+
+.PHONY: sys-pkgs clean-state help lint fmt review
+
+sys-pkgs: $(STATE_DIR)/sys-pkgs.stamp
+
+clean-state:
+	rm -rf $(STATE_DIR)
+
+# --- Shared Shell Script Finder ---
 FIND_SHELL = find configure modules -type f \( -name '*.sh' -o -name 'configure' -o -name 'install' -o -name 'setup' -o -path '*/.local/bin/*' -o -path '*/.local/lib/sh/*' \) -print0
 
-.PHONY: help lint fmt review
-
 help:
-	@echo "Usage: ./configure <target> && make <target>"
+	@echo "Usage: make <target>"
 	@echo ""
 	@echo "Primary targets:"
 	@echo "  desktop      Debian desktop node"
@@ -30,11 +47,15 @@ help:
 	@echo "  pubnix       Rootless shared UNIX node"
 	@echo "  docker-base  Container base image environment"
 	@echo ""
+	@echo "Submodule targets:"
+	@echo "  emacs, git, dev, base, wireproxy, etc."
+	@echo ""
 	@echo "Utility targets:"
 	@echo "  help         Show this help"
 	@echo "  lint         Run shellcheck and shfmt checks (read-only)"
 	@echo "  fmt          Format shell scripts in-place using shfmt"
-	@echo "  review       Run Aider review on the latest commit with full repo context"
+	@echo "  review       Run Aider review on the latest commit"
+	@echo "  clean-state  Wipe .state/ cache to force package reinstall"
 
 lint:
 	@rc=0
@@ -72,12 +93,12 @@ review:
 	echo ":: Running Aider review on latest commit..."
 	msg_file=$$(mktemp)
 	trap 'rm -f "$$msg_file"' EXIT INT TERM
-	cat <<-'EOF' > "$$msg_file"
+	cat <<-'MSG' > "$$msg_file"
 	Review the latest commit against the design principles, constraints, and architecture outlined in README.md and the codebase structure.
 	Identify any bugs, architectural deviations, or unnecessary complexity.
 
 	Latest Commit Diff:
-	EOF
+	MSG
 	git show HEAD >> "$$msg_file"
 	model="$${AIDER_MODEL:-gemini/gemini-flash-latest}"
 	aider --model "$$model" --read README.md --message-file "$$msg_file"

@@ -38,7 +38,6 @@ USER esperoj
 WORKDIR /home/esperoj/projects/system
 
 RUN rm -rf ~/.bashrc ~/.profile \
-    && ./configure docker-base \
     && make docker-base
 
 WORKDIR /home/esperoj
