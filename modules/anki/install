@@ -2,8 +2,13 @@
 set -euo pipefail
 
 . "${LIB_DIR}/sh/fetch.sh"
-
 PREFIX="${HOME}/.local"
+
+if command -v anki >/dev/null 2>&1; then
+    echo "✓ Anki is already installed."
+    exit
+fi
+
 TMP_DIR=$(mktemp -d -t anki-install-XXXXXX)
 trap 'rm -rf "${TMP_DIR}"' EXIT
 

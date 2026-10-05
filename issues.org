@@ -10,6 +10,7 @@
 
 * TODO Create a issues mode for Emacs
 
-* TODO Remove complexity from kv and vault especially backup features
+* DONE Remove complexity from kv 
 
-* TODO 
+* TODO Remove complexity from vault especially backup features
+
