@@ -5,8 +5,8 @@ set -euo pipefail
 PREFIX="${HOME}/.local"
 
 if command -v anki >/dev/null 2>&1; then
-    echo "✓ Anki is already installed."
-    exit
+	echo "✓ Anki is already installed."
+	exit
 fi
 
 TMP_DIR=$(mktemp -d -t anki-install-XXXXXX)

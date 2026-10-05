@@ -17,7 +17,10 @@ MODULES_DIR="${MODULES_DIR:-.}"
 TARGET="${TARGET:-$HOME}"
 STOW_OPTS="${STOW_OPTS:--v}"
 
-die() { echo "dot: $*" >&2; exit 1; }
+die() {
+	echo "dot: $*" >&2
+	exit 1
+}
 
 [ -d "$MODULES_DIR" ] || die "modules dir not found: $MODULES_DIR"
 [ -d "$TARGET" ] || die "target dir not found: $TARGET"
@@ -29,69 +32,140 @@ LOCK="${XDG_STATE_HOME:-$HOME/.local/state}/dot.lock"
 mkdir -p "$(dirname "$LOCK")"
 exec 9>"$LOCK"
 if command -v flock >/dev/null 2>&1; then
-    flock -w 60 9 || die "could not acquire stow lock"
+	flock -w 60 9 || die "could not acquire stow lock"
 fi
 
-is_ours() { # symlink managed by this MODULES_DIR
-    [ -L "$1" ] || return 1
-    case "$(readlink -f "$1" 2>/dev/null)" in
-    "$MODULES_DIR"/*) return 0 ;;
-    esac
-    return 1
+canonicalize() {
+	_path="$1"
+	if command -v realpath >/dev/null 2>&1; then
+		realpath "$_path" 2>/dev/null && return 0
+	fi
+	if _out=$(readlink -f "$_path" 2>/dev/null) && [ -n "$_out" ]; then
+		printf '%s\n' "$_out"
+		return 0
+	fi
+	# POSIX fallback
+	while [ -L "$_path" ]; do
+		_link=$(readlink "$_path" 2>/dev/null) || break
+		case "$_link" in
+		/*) _path="$_link" ;;
+		*) _path="$(cd "$(dirname "$_path")" 2>/dev/null && pwd -P)/$_link" ;;
+		esac
+	done
+	if [ -d "$_path" ]; then
+		(cd "$_path" 2>/dev/null && pwd -P)
+	elif [ -d "$(dirname "$_path")" ]; then
+		printf '%s/%s\n' "$(cd "$(dirname "$_path")" 2>/dev/null && pwd -P)" "$(basename "$_path")"
+	else
+		printf '%s\n' "$_path"
+	fi
 }
 
-# move whatever in TARGET blocks the packages into the repo
+is_ours() {
+	_tgt="$1"
+	_src="$2"
+
+	_tgt_canon=$(canonicalize "$_tgt")
+	_src_canon=$(canonicalize "$_src")
+
+	# Canonical paths match -> already linked to this source
+	if [ -n "$_tgt_canon" ] && [ -n "$_src_canon" ] && [ "$_tgt_canon" = "$_src_canon" ]; then
+		return 0
+	fi
+
+	# Canonical target resolves inside MODULES_DIR -> belongs to repo
+	case "$_tgt_canon" in
+	"$MODULES_DIR" | "$MODULES_DIR"/*) return 0 ;;
+	esac
+
+	# Check raw symlink path in case of broken symlink pointing to repo
+	if [ -L "$_tgt" ]; then
+		_raw=$(readlink "$_tgt" 2>/dev/null || true)
+		case "$_raw" in
+		"$MODULES_DIR" | "$MODULES_DIR"/*) return 0 ;;
+		esac
+	fi
+
+	return 1
+}
+
+# move whatever in TARGET blocks the modules into the backup directory
 stash() {
-    for pkg in "$@"; do
-        [ -d "$MODULES_DIR/$pkg" ] || die "no such module: $pkg"
-        (cd "$MODULES_DIR/$pkg" && find . -name .git -prune -o -print) |
-        while IFS= read -r rel; do
-            rel=${rel#./}
-            case "$rel" in
-            '' | . | .. | .git | .module-* | *.swp | *~ | .DS_Store) continue ;;
-            esac
-            src="$MODULES_DIR/$pkg/$rel"
-            tgt="$TARGET/$rel"
-            [ -e "$tgt" ] || [ -L "$tgt" ] || continue   # nothing in the way
-            is_ours "$tgt" && continue                   # already linked by us
-            [ -d "$tgt" ] && [ -d "$src" ] && continue   # real dirs merge fine
-            bak="$MODULES_DIR/.backup/$pkg/$rel"
-            if [ -e "$bak" ]; then
-                echo "dot: stash exists: $bak — resolve it; stow will report $tgt" >&2
-                continue
-            fi
-            mkdir -p "$(dirname "$bak")"
-            mv "$tgt" "$bak"
-            echo "dot: stashed $tgt -> $bak"
-        done
-    done
+	for mod in "$@"; do
+		[ -d "$MODULES_DIR/$mod" ] || die "no such module: $mod"
+		(cd "$MODULES_DIR/$mod" && find . -name .git -prune -o -name .backup -prune -o -print) |
+			while IFS= read -r rel || [ -n "$rel" ]; do
+				rel=${rel#./}
+				case "$rel" in
+				'' | . | .. | .git | .git/* | .backup | .backup/* | .module-* | *.swp | *~ | .DS_Store) continue ;;
+				esac
+
+				src="$MODULES_DIR/$mod/$rel"
+				tgt="$TARGET/$rel"
+
+				[ -e "$tgt" ] || [ -L "$tgt" ] || continue
+
+				# Case A: Real directories merge fine
+				if [ -d "$tgt" ] && [ -d "$src" ] && [ ! -L "$tgt" ]; then
+					continue
+				fi
+
+				# Case B: Target is a directory symlink previously folded by Stow into our repo
+				if [ -L "$tgt" ] && [ -d "$tgt" ] && is_ours "$tgt" "$src"; then
+					# Unfold: safely remove symlink and replace with real directory
+					rm "$tgt"
+					mkdir -p "$tgt"
+					continue
+				fi
+
+				# Case C: Target is already linked to our module or inside MODULES_DIR
+				if is_ours "$tgt" "$src"; then
+					continue
+				fi
+
+				# Case D: Host conflict. Back up existing target to avoid Stow collision
+				bak="$MODULES_DIR/.backup/$mod/$rel"
+				if [ -e "$bak" ] || [ -L "$bak" ]; then
+					bak="${bak}.$(date +%Y%m%d%H%M%S)"
+				fi
+
+				mkdir -p "$(dirname "$bak")"
+				mv "$tgt" "$bak"
+				echo "dot: stashed $tgt -> $bak"
+
+				# If target was a foreign directory blocking our directory, recreate target dir
+				if [ -d "$src" ]; then
+					mkdir -p "$tgt"
+				fi
+			done
+	done
 }
 
-stow_run() { # $1 = stow | -D
-    action=$1
-    shift
-    # shellcheck disable=SC2086
-    stow $action $STOW_OPTS -d "$MODULES_DIR" -t "$TARGET" \
-        --ignore='\.git' --ignore='\.swp$' --ignore='^\.module-' "$@"
+stow_run() {
+	action=$1
+	shift
+	# shellcheck disable=SC2086
+	stow "$action" $STOW_OPTS --no-folding -d "$MODULES_DIR" -t "$TARGET" \
+		--ignore='\.git' --ignore='\.swp$' --ignore='^\.module-' --ignore='^\.backup' "$@"
 }
 
 case "${1:-}" in
 apply)
-    shift
-    [ $# -ge 1 ] || die "usage: dot apply <module...>"
-    stash "$@"
-    stow_run stow "$@"
-    ;;
+	shift
+	[ $# -ge 1 ] || die "usage: dot apply <module...>"
+	stash "$@"
+	stow_run -S "$@"
+	;;
 remove)
-    shift
-    [ $# -ge 1 ] || die "usage: dot remove <module...>"
-    stow_run -D "$@"
-    ;;
+	shift
+	[ $# -ge 1 ] || die "usage: dot remove <module...>"
+	stow_run -D "$@"
+	;;
 ls)
-    find "$MODULES_DIR" -mindepth 1 -maxdepth 1 -type d ! -name '.*' \
-        -exec basename {} \; | LC_ALL=C sort
-    ;;
+	find "$MODULES_DIR" -mindepth 1 -maxdepth 1 -type d ! -name '.*' \
+		-exec basename {} \; | LC_ALL=C sort
+	;;
 *)
-    die "usage: dot {apply|remove|ls} [module...]"
-    ;;
+	die "usage: dot {apply|remove|ls} [module...]"
+	;;
 esac
