@@ -1,160 +1,97 @@
 #!/bin/sh
-# dot - Simple dotfile module manager
+# dot - minimal module manager on top of GNU Stow
+#
+#   dot apply <module...>   stash conflicts, then stow
+#   dot remove <module...>  unstow
+#   dot ls                  list modules
+#
+# Conflict policy: never delete, never scatter .bak files. Anything in the
+# way is moved into $MODULES_DIR/.backup/<module>/ and tracked by git.
+# Review with `git status`, merge what you want, delete the stash.
+#
+# env: MODULES_DIR (stow dir, default .), TARGET (default $HOME),
+#      STOW_OPTS (extra stow flags, default -v)
 set -eu
 
-# --- Configuration ---
-STOW_BIN="${STOW_BIN:-stow}"
-TARGET="${TARGET:-$HOME}"
 MODULES_DIR="${MODULES_DIR:-.}"
+TARGET="${TARGET:-$HOME}"
 STOW_OPTS="${STOW_OPTS:--v}"
 
-# --- Helpers ---
-log() { echo ":: $*"; }
+die() { echo "dot: $*" >&2; exit 1; }
 
-die() {
-	cat <<EOF >&2
-error: $*
+[ -d "$MODULES_DIR" ] || die "modules dir not found: $MODULES_DIR"
+[ -d "$TARGET" ] || die "target dir not found: $TARGET"
+MODULES_DIR=$(cd "$MODULES_DIR" && pwd -P)
+TARGET=$(cd "$TARGET" && pwd -P)
 
-Usage: $0 {apply|remove|ls} [modules...]
+# one stow at a time (make -j runs applies in parallel)
+LOCK="${XDG_STATE_HOME:-$HOME/.local/state}/dot.lock"
+mkdir -p "$(dirname "$LOCK")"
+exec 9>"$LOCK"
+if command -v flock >/dev/null 2>&1; then
+    flock -w 60 9 || die "could not acquire stow lock"
+fi
 
-Env Overrides:
-  TARGET        Destination (default: \$HOME)
-  MODULES_DIR   Source of modules (default: current dir)
-EOF
-	exit 1
+is_ours() { # symlink managed by this MODULES_DIR
+    [ -L "$1" ] || return 1
+    case "$(readlink -f "$1" 2>/dev/null)" in
+    "$MODULES_DIR"/*) return 0 ;;
+    esac
+    return 1
 }
 
-run_locked() {
-	local lockfile="${XDG_STATE_HOME:-$HOME/.local/state}/dot-stow.lock"
-	mkdir -p "$(dirname "$lockfile")"
-	if command -v flock >/dev/null 2>&1; then
-		(
-			flock -w 60 9 || die "Could not acquire stow lock (waited 60s)"
-			"$@"
-		) 9>"$lockfile"
-	else
-		"$@"
-	fi
+# move whatever in TARGET blocks the packages into the repo
+stash() {
+    for pkg in "$@"; do
+        [ -d "$MODULES_DIR/$pkg" ] || die "no such module: $pkg"
+        (cd "$MODULES_DIR/$pkg" && find . -name .git -prune -o -print) |
+        while IFS= read -r rel; do
+            rel=${rel#./}
+            case "$rel" in
+            '' | . | .. | .git | .module-* | *.swp | *~ | .DS_Store) continue ;;
+            esac
+            src="$MODULES_DIR/$pkg/$rel"
+            tgt="$TARGET/$rel"
+            [ -e "$tgt" ] || [ -L "$tgt" ] || continue   # nothing in the way
+            is_ours "$tgt" && continue                   # already linked by us
+            [ -d "$tgt" ] && [ -d "$src" ] && continue   # real dirs merge fine
+            bak="$MODULES_DIR/.backup/$pkg/$rel"
+            if [ -e "$bak" ]; then
+                echo "dot: stash exists: $bak — resolve it; stow will report $tgt" >&2
+                continue
+            fi
+            mkdir -p "$(dirname "$bak")"
+            mv "$tgt" "$bak"
+            echo "dot: stashed $tgt -> $bak"
+        done
+    done
 }
 
-execute_apply() {
-	# Prune first to ensure clean symlinks if target was modified
-	"$STOW_BIN" -D -d "$MODULES_DIR" -t "$TARGET" "$@" 2>/dev/null || true
-
-	# Restow
-	"$STOW_BIN" \
-		${STOW_OPTS} \
-		-d "$MODULES_DIR" \
-		-t "$TARGET" \
-		--ignore='^\.module-' \
-		--ignore='\.swp$' \
-		--ignore='\.git' \
-		"$@"
+stow_run() { # $1 = stow | -D
+    action=$1
+    shift
+    # shellcheck disable=SC2086
+    stow $action $STOW_OPTS -d "$MODULES_DIR" -t "$TARGET" \
+        --ignore='\.git' --ignore='\.swp$' --ignore='^\.module-' "$@"
 }
 
-execute_remove() {
-	"$STOW_BIN" ${STOW_OPTS} -D -d "$MODULES_DIR" -t "$TARGET" "$@"
-}
-backup_existing_targets() {
-	_stamp=$(date +%s)
-
-	for _mod in "$@"; do
-		_moddir="$MODULES_DIR/$_mod"
-		[ -d "$_moddir" ] || continue
-
-		# 1. File conflicts:
-		#    Module wants a file, but target exists as a non-symlink.
-		(
-			cd "$_moddir"
-			find . -type f \
-				! -path '*/.git/*' \
-				! -name '*.swp' \
-				! -name '*~' \
-				-print
-		) | while IFS= read -r _rel; do
-			_rel=${_rel#./}
-			_target="$TARGET/$_rel"
-
-			if [ -e "$_target" ] && [ ! -L "$_target" ]; then
-				log "Backing up existing $_target -> $_target.bak.$_stamp"
-				mv "$_target" "$_target.bak.$_stamp"
-			fi
-		done
-
-		# 2. Directory conflicts:
-		#    Module wants a directory, but target exists as a non-directory.
-		(
-			cd "$_moddir"
-			find . -mindepth 1 -type d \
-				! -path '*/.git/*' \
-				-print
-		) | while IFS= read -r _rel; do
-			_rel=${_rel#./}
-			_target="$TARGET/$_rel"
-
-			if [ -e "$_target" ] && [ ! -d "$_target" ] && [ ! -L "$_target" ]; then
-				log "Backing up existing non-directory $_target -> $_target.bak.$_stamp"
-				mv "$_target" "$_target.bak.$_stamp"
-			fi
-		done
-	done
-}
-# --- Command Implementations ---
-cmd_apply() {
-	[ $# -gt 0 ] || die "apply requires at least one module name."
-
-	log "Applying [$*] to [$TARGET]"
-
-	backup_existing_targets "$@"
-
-	# Prune first to ensure clean symlinks if target was modified
-	"$STOW_BIN" -D -d "$MODULES_DIR" -t "$TARGET" "$@" 2>/dev/null || true
-
-	# Restow
-	"$STOW_BIN" \
-		${STOW_OPTS} \
-		-d "$MODULES_DIR" \
-		-t "$TARGET" \
-		--ignore='^\.module-' \
-		--ignore='\.swp$' \
-		--ignore='\.git' \
-		"$@"
-}
-cmd_remove() {
-	[ $# -gt 0 ] || die "remove requires at least one module name."
-
-	log "Removing [$*] from [$TARGET]"
-	run_locked execute_remove "$@"
-}
-
-cmd_ls() {
-	log "Available modules in [$MODULES_DIR]:"
-
-	# Portable listing without GNU find -printf
-	find "$MODULES_DIR" -maxdepth 1 -type d \
-		! -path "$MODULES_DIR" \
-		! -name ".*" \
-		-exec basename {} \; | LC_ALL=C sort | sed 's/^/  /'
-}
-
-# --- Validation ---
-[ -d "$MODULES_DIR" ] || die "Modules directory not found: $MODULES_DIR"
-[ -d "$TARGET" ] || die "Target directory not found: $TARGET"
-
-# --- Router ---
 case "${1:-}" in
 apply)
-	shift
-	cmd_apply "$@"
-	;;
+    shift
+    [ $# -ge 1 ] || die "usage: dot apply <module...>"
+    stash "$@"
+    stow_run stow "$@"
+    ;;
 remove)
-	shift
-	cmd_remove "$@"
-	;;
-ls | list)
-	cmd_ls
-	;;
+    shift
+    [ $# -ge 1 ] || die "usage: dot remove <module...>"
+    stow_run -D "$@"
+    ;;
+ls)
+    find "$MODULES_DIR" -mindepth 1 -maxdepth 1 -type d ! -name '.*' \
+        -exec basename {} \; | LC_ALL=C sort
+    ;;
 *)
-	die "Invalid or missing command. Use apply, remove, or ls."
-	;;
+    die "usage: dot {apply|remove|ls} [module...]"
+    ;;
 esac
