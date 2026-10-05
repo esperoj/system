@@ -14,6 +14,5 @@ PUBNIX_MODULES := base dev crontab wireproxy stow
 .PHONY: pubnix
 pubnix: sys-pkgs $(PUBNIX_MODULES)
 	@MODULES_DIR="$(MODULES_DIR)/pubnix" dot apply dotfiles
-	@vault apply base git rclone ssh
 	@echo "✓ Pubnix profile applied successfully."
 endif
