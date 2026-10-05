@@ -10,7 +10,6 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # 1. Configure APT: globally disable recommends, suggests, and cache retention
 RUN echo 'APT::Install-Recommends "0";' > /etc/apt/apt.conf.d/99no-recommends \
     && echo 'APT::Install-Suggests "0";' >> /etc/apt/apt.conf.d/99no-recommends \
-    && echo 'APT::Clean-Installed "true";' > /etc/apt/apt.conf.d/99clean
 
 # 2. Bare minimum host prep: install sudo for delegation and create user
 RUN apt-get update && apt-get install -y --no-install-recommends \

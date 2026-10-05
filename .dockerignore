@@ -12,3 +12,8 @@ vault-seed*
 .DS_Store
 id_*
 !id_*.pub
+.aider*
+
+.git
+.crow
+.github
