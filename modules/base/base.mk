@@ -23,5 +23,4 @@ BASE_MODULES := 7zip age bin env git jq lib rclone shell ssh stow vault recipes
 
 .PHONY: base
 base: sys-pkgs $(BASE_MODULES)
-	@mkdir -p "$$HOME/.config/env"
 endif

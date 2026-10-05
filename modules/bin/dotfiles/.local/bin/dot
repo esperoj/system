@@ -27,7 +27,7 @@ die() {
 MODULES_DIR=$(cd "$MODULES_DIR" && pwd -P)
 TARGET=$(cd "$TARGET" && pwd -P)
 
-# one stow at a time (make -j runs applies in parallel)
+# One stow at a time (make -j runs applies in parallel)
 LOCK="${XDG_STATE_HOME:-$HOME/.local/state}/dot.lock"
 mkdir -p "$(dirname "$LOCK")"
 exec 9>"$LOCK"
@@ -44,7 +44,6 @@ canonicalize() {
 		printf '%s\n' "$_out"
 		return 0
 	fi
-	# POSIX fallback
 	while [ -L "$_path" ]; do
 		_link=$(readlink "$_path" 2>/dev/null) || break
 		case "$_link" in
@@ -61,6 +60,7 @@ canonicalize() {
 	fi
 }
 
+# Returns 0 if $tgt is already pointing to $src or belongs to this MODULES_DIR
 is_ours() {
 	_tgt="$1"
 	_src="$2"
@@ -68,17 +68,14 @@ is_ours() {
 	_tgt_canon=$(canonicalize "$_tgt")
 	_src_canon=$(canonicalize "$_src")
 
-	# Canonical paths match -> already linked to this source
 	if [ -n "$_tgt_canon" ] && [ -n "$_src_canon" ] && [ "$_tgt_canon" = "$_src_canon" ]; then
 		return 0
 	fi
 
-	# Canonical target resolves inside MODULES_DIR -> belongs to repo
 	case "$_tgt_canon" in
 	"$MODULES_DIR" | "$MODULES_DIR"/*) return 0 ;;
 	esac
 
-	# Check raw symlink path in case of broken symlink pointing to repo
 	if [ -L "$_tgt" ]; then
 		_raw=$(readlink "$_tgt" 2>/dev/null || true)
 		case "$_raw" in
@@ -89,7 +86,48 @@ is_ours() {
 	return 1
 }
 
-# move whatever in TARGET blocks the modules into the backup directory
+# Returns 0 if $tgt is a symlink pointing to any managed system repo or vault module
+is_repo_symlink() {
+	_tgt="$1"
+	[ -L "$_tgt" ] || return 1
+
+	_canon=$(canonicalize "$_tgt")
+	case "$_canon" in
+	*"/.vault"/* | *"/system/modules"/* | *"/projects/system"/*) return 0 ;;
+	esac
+
+	_raw=$(readlink "$_tgt" 2>/dev/null || true)
+	case "$_raw" in
+	*"/.vault/"* | *"/system/modules/"* | *"/projects/system/"*) return 0 ;;
+	esac
+
+	return 1
+}
+
+# Safely back up a conflicting host file to $MODULES_DIR/.backup/
+stash_file() {
+	_mod="$1"
+	_rel="$2"
+	_tgt="$3"
+
+	_bak="$MODULES_DIR/.backup/$_mod/$_rel"
+	_parent="$(dirname "$_bak")"
+
+	if [ -L "$_parent" ]; then
+		rm -f "$_parent"
+	fi
+
+	mkdir -p "$_parent"
+
+	if [ -e "$_bak" ] || [ -L "$_bak" ]; then
+		_bak="${_bak}.$(date +%Y%m%d%H%M%S)"
+	fi
+
+	mv "$_tgt" "$_bak"
+	echo "dot: stashed $_tgt -> $_bak"
+}
+
+# Unfold directory symlinks and handle conflicts
 stash() {
 	for mod in "$@"; do
 		[ -d "$MODULES_DIR/$mod" ] || die "no such module: $mod"
@@ -105,38 +143,47 @@ stash() {
 
 				[ -e "$tgt" ] || [ -L "$tgt" ] || continue
 
-				# Case A: Real directories merge fine
-				if [ -d "$tgt" ] && [ -d "$src" ] && [ ! -L "$tgt" ]; then
-					continue
-				fi
+				# 1. Source is a directory
+				if [ -d "$src" ] && [ ! -L "$src" ]; then
+					# Target is already a real directory -> clean merge
+					if [ -d "$tgt" ] && [ ! -L "$tgt" ]; then
+						continue
+					fi
 
-				# Case B: Target is a directory symlink previously folded by Stow into our repo
-				if [ -L "$tgt" ] && [ -d "$tgt" ] && is_ours "$tgt" "$src"; then
-					# Unfold: safely remove symlink and replace with real directory
-					rm "$tgt"
+					# Target is a folded directory symlink -> unfold into real directory
+					if [ -L "$tgt" ] && [ -d "$tgt" ]; then
+						_dest=$(readlink -f "$tgt" 2>/dev/null || true)
+						rm -f "$tgt"
+						mkdir -p "$tgt"
+						if [ -n "$_dest" ] && [ -d "$_dest" ]; then
+							for _item in "$_dest"/* "$_dest"/.[!.]* "$_dest"/..?*; do
+								[ -e "$_item" ] || [ -L "$_item" ] || continue
+								ln -sf "$_item" "$tgt/$(basename "$_item")"
+							done
+						fi
+						continue
+					fi
+
+					# Target is a file blocking a directory -> stash it
+					stash_file "$mod" "$rel" "$tgt"
 					mkdir -p "$tgt"
 					continue
 				fi
 
-				# Case C: Target is already linked to our module or inside MODULES_DIR
+				# 2. Source is a file
 				if is_ours "$tgt" "$src"; then
 					continue
 				fi
 
-				# Case D: Host conflict. Back up existing target to avoid Stow collision
-				bak="$MODULES_DIR/.backup/$mod/$rel"
-				if [ -e "$bak" ] || [ -L "$bak" ]; then
-					bak="${bak}.$(date +%Y%m%d%H%M%S)"
+				# If target points to another internal repo/vault module:
+				# Replace symlink cleanly without creating .backup clutter
+				if is_repo_symlink "$tgt"; then
+					rm -f "$tgt"
+					continue
 				fi
 
-				mkdir -p "$(dirname "$bak")"
-				mv "$tgt" "$bak"
-				echo "dot: stashed $tgt -> $bak"
-
-				# If target was a foreign directory blocking our directory, recreate target dir
-				if [ -d "$src" ]; then
-					mkdir -p "$tgt"
-				fi
+				# Genuine unmanaged host file conflict -> stash it
+				stash_file "$mod" "$rel" "$tgt"
 			done
 	done
 }

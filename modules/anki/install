@@ -1,19 +1,42 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-. "${LIB_DIR}/sh/fetch.sh"
+# 1. Source OS & Architecture detection
+if [ -n "${LIB_DIR:-}" ] && [ -f "${LIB_DIR}/sh/os.sh" ]; then
+	. "${LIB_DIR}/sh/os.sh"
+elif [ -f "$HOME/.local/lib/sh/os.sh" ]; then
+	. "$HOME/.local/lib/sh/os.sh"
+fi
+
+. "${LIB_DIR:-$HOME/.local/lib}/sh/fetch.sh"
+
 PREFIX="${HOME}/.local"
 
-if command -v anki >/dev/null 2>&1; then
-	echo "✓ Anki is already installed."
-	exit
+# 2. Map architecture to Anki release asset naming
+case "${ARCH:-$(uname -m)}" in
+amd64 | x86_64)
+	ARCH_PATTERN="x86_64"
+	;;
+arm64 | aarch64)
+	ARCH_PATTERN="aarch64"
+	;;
+*)
+	echo "Error: Anki official binaries only support x86_64 and aarch64 (current: ${ARCH:-$(uname -m)})" >&2
+	exit 1
+	;;
+esac
+
+# 3. Only skip if already installed AND executable on this CPU
+if command -v anki >/dev/null 2>&1 && anki --version >/dev/null 2>&1; then
+	echo "✓ Anki is already installed and functional."
+	exit 0
 fi
 
 TMP_DIR=$(mktemp -d -t anki-install-XXXXXX)
 trap 'rm -rf "${TMP_DIR}"' EXIT
 
-echo ":: Resolving Anki release..."
-URL=$(fetch_resolve_url "gh:ankitects/anki" "linux.*\.tar\.zst$")
+echo ":: Resolving Anki release for linux-${ARCH_PATTERN}..."
+URL=$(fetch_resolve_url "gh:ankitects/anki" "linux-${ARCH_PATTERN}\.tar\.zst$")
 
 echo ":: Downloading and extracting Anki..."
 fetch_download "$URL" "${TMP_DIR}/anki.tar.zst"
@@ -21,14 +44,22 @@ fetch_extract "${TMP_DIR}/anki.tar.zst" "${TMP_DIR}"
 
 EXTRACTED_DIR=$(find "${TMP_DIR}" -mindepth 1 -maxdepth 1 -type d -name "anki*" | head -n 1)
 
+echo ":: Cleaning previous installation..."
+rm -rf "${PREFIX}/share/anki" "${PREFIX}/bin/anki"
+
 echo ":: Installing application assets..."
 mkdir -p "${PREFIX}/share/anki" "${PREFIX}/bin" "${PREFIX}/share/applications" "${PREFIX}/share/pixmaps"
 cp -ar "${EXTRACTED_DIR}"/* "${PREFIX}/share/anki/"
 ln -sf "${PREFIX}/share/anki/anki" "${PREFIX}/bin/anki"
 
-cp -f "${EXTRACTED_DIR}/anki.png" "${PREFIX}/share/pixmaps/anki.png"
-sed -e "s|Exec=anki|Exec=${PREFIX}/bin/anki|g" \
-	-e "s|Icon=anki|Icon=${PREFIX}/share/pixmaps/anki.png|g" \
-	"${EXTRACTED_DIR}/anki.desktop" >"${PREFIX}/share/applications/anki.desktop"
+if [ -f "${EXTRACTED_DIR}/anki.png" ]; then
+	cp -f "${EXTRACTED_DIR}/anki.png" "${PREFIX}/share/pixmaps/anki.png"
+fi
+
+if [ -f "${EXTRACTED_DIR}/anki.desktop" ]; then
+	sed -e "s|Exec=anki|Exec=${PREFIX}/bin/anki|g" \
+		-e "s|Icon=anki|Icon=${PREFIX}/share/pixmaps/anki.png|g" \
+		"${EXTRACTED_DIR}/anki.desktop" >"${PREFIX}/share/applications/anki.desktop"
+fi
 
 echo "✓ Anki successfully installed to ${PREFIX}/bin/anki"

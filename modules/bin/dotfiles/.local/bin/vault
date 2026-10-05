@@ -1,19 +1,15 @@
 #!/bin/sh
-# vault - ~/.vault is a plain private git repo; this tool is only glue:
+# vault - ~/.vault is a plain private git repo; dot handles stowing
 #
 #   vault init [remote]       clone remote, or adopt present files (cold seed, offline)
 #   vault sync                commit all, pull --rebase, push
 #   vault apply <mod...>      lock 600/700 and stow modules via dot
-#   vault remove <mod...>     unstow modules
+#   vault remove <mod...>     unstow modules via dot
 #   vault chmod               re-lock 600/700
-#   vault ls                  list modules
-#   vault status              show git status
-#   vault diff [args...]      show git diff
-#   vault log [args...]       show git log
-#
-# Everything else is plain git:  git -C ~/.vault status | diff | log
-# Cold backups are generic and live outside the vault:
-#   backup create ~/.vault <out.tar.gz.age>    backup restore <in> ~/.vault
+#   vault ls                  list modules via dot
+#   vault status              git status
+#   vault diff [args...]      git diff
+#   vault log [args...]       git log
 set -eu
 
 VAULT_ROOT="${VAULT_ROOT:-$HOME/.vault}"
@@ -27,7 +23,7 @@ require_vault() {
 	[ -d "$VAULT_ROOT/.git" ] || die "no vault at $VAULT_ROOT — run: vault init"
 }
 
-# dirs 700, files 600/700 (exec bit preserved). .git left to git itself.
+# Directories 700, files 600/700 (exec bit preserved)
 lock_perms() {
 	[ -d "$VAULT_ROOT" ] || return 0
 	chmod 700 "$VAULT_ROOT"
@@ -42,7 +38,6 @@ cmd_init() {
 			echo "vault: origin set to $1"
 		fi
 	elif [ -n "$(ls -A "$VAULT_ROOT" 2>/dev/null || true)" ]; then
-		# files but no .git — restored cold seed: adopt in place, zero network
 		git -C "$VAULT_ROOT" init -b main
 		if [ $# -ge 1 ]; then
 			git -C "$VAULT_ROOT" remote add origin "$1" 2>/dev/null || git -C "$VAULT_ROOT" remote set-url origin "$1"
@@ -70,7 +65,6 @@ cmd_sync() {
 		git commit -m "vault: $(uname -n) $(date '+%F %T')"
 	fi
 
-	# Pull with rebase if remote is available
 	if git rev-parse --abbrev-ref '@{upstream}' >/dev/null 2>&1; then
 		git pull --rebase || die "rebase conflict — resolve in $VAULT_ROOT, then rerun sync"
 	elif git remote | grep -q .; then
@@ -103,20 +97,19 @@ cmd_apply() {
 	[ $# -ge 1 ] || die "usage: vault apply <module...>"
 	lock_perms
 
+	# Filter to only modules present in VAULT_ROOT
 	_mods=""
 	for m in "$@"; do
 		if [ -d "$VAULT_ROOT/$m" ]; then
 			_mods="${_mods:+$_mods }$m"
 		else
-			echo "vault: warning: module '$m' not found in $VAULT_ROOT (skipping)" >&2
+			echo "vault: note: module '$m' not present in $VAULT_ROOT (skipping)"
 		fi
 	done
 
 	if [ -n "$_mods" ]; then
 		# shellcheck disable=SC2086
 		MODULES_DIR="$VAULT_ROOT" dot apply $_mods
-	else
-		echo "vault: no matching modules to apply in $VAULT_ROOT"
 	fi
 
 	lock_perms
@@ -125,22 +118,12 @@ cmd_apply() {
 cmd_remove() {
 	require_vault
 	[ $# -ge 1 ] || die "usage: vault remove <module...>"
-	_mods=""
-	for m in "$@"; do
-		if [ -d "$VAULT_ROOT/$m" ]; then
-			_mods="${_mods:+$_mods }$m"
-		fi
-	done
-	if [ -n "$_mods" ]; then
-		# shellcheck disable=SC2086
-		MODULES_DIR="$VAULT_ROOT" dot remove $_mods
-	fi
+	MODULES_DIR="$VAULT_ROOT" dot remove "$@"
 }
 
 cmd_ls() {
 	require_vault
-	find "$VAULT_ROOT" -mindepth 1 -maxdepth 1 -type d ! -name '.*' \
-		-exec basename {} \; | LC_ALL=C sort
+	MODULES_DIR="$VAULT_ROOT" dot ls
 }
 
 case "${1:-}" in
@@ -148,9 +131,7 @@ init)
 	shift
 	cmd_init "$@"
 	;;
-sync)
-	cmd_sync
-	;;
+sync) cmd_sync ;;
 apply)
 	shift
 	cmd_apply "$@"
@@ -164,9 +145,7 @@ chmod)
 	lock_perms
 	echo "vault: permissions locked"
 	;;
-ls)
-	cmd_ls
-	;;
+ls) cmd_ls ;;
 status)
 	require_vault
 	git -C "$VAULT_ROOT" status
