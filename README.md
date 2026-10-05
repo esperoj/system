@@ -32,12 +32,12 @@ Preferred foundations:
 - GNU Make
 - Git
 - Plain text
-- GNU Stow
+- GNU Stow (`--no-folding`)
 - Standard UNIX utilities
 
 What is avoided:
 - Ephemeral configuration frameworks
-- Complex dotfile engines with non-standard DSLs
+- Complex dotfile engines with bespoke DSLs
 - Unnecessary daemon layers for state storage
 - Formats that cannot be inspected with standard text utilities (`cat`, `find`, `grep`)
 
@@ -46,8 +46,8 @@ What is avoided:
 ### Axiom 2: Anti-Complexity
 
 The operator should be able to hold the entire build model in memory:
-- **No external state database:** No Redis, no bespoke flat-file state buses. System state lives directly in the filesystem and within the GNU Make dependency graph.
-- **Single-phase evaluation:** No awkward multi-phase configure dances. Targets evaluate on demand in a single invocation.
+- **No external state database:** System state lives directly in the filesystem and within the GNU Make dependency graph.
+- **Single-phase evaluation:** Targets evaluate on demand in a single invocation.
 - **Disposable cache:** Ephemeral state is restricted strictly to the `.state/` directory and can be purged at any moment without corrupting the repository.
 
 ---
@@ -56,9 +56,8 @@ The operator should be able to hold the entire build model in memory:
 
 Resilience comes from clear boundaries, explicit dependencies, and offline survivability:
 - **Offline-first bootstrap:** System bootstrap does not assume active network access or established SSH keys.
-- **Local perimeter security:** Full-disk encryption (LUKS on desktop, Android FBE on mobile) protects data at rest.
-- **Strict permissions:** Private credentials and keys are programmatically clamped to `0700` (directories/executables) and `0600` (files).
-- **Transport encryption:** Offsite backups are streamed through `tar | age`.
+- **Strict permissions:** Private credentials and keys are programmatically locked to `0700` (directories/executables) and `0600` (files).
+- **Separation of concerns:** Public configurations live in the system repository; private keys and secrets reside in `~/.vault/`.
 
 ---
 
@@ -67,7 +66,7 @@ Resilience comes from clear boundaries, explicit dependencies, and offline survi
 Daily interactive tooling must be immediate, transparent, and low-friction:
 - Shell startup (`.profile`, `.bashrc`) performs zero package compilation, network calls, or stow linking.
 - Fast, cached, idempotent builds: if configuration has not changed, running a target finishes in milliseconds.
-- Standalone CLI utilities: scripts like `install-sys-pkg` and `fetch-bin` work directly from the terminal without requiring Make orchestration.
+- Standalone CLI utilities: scripts like `dot`, `vault`, `install-sys-pkg`, and `fetch-bin` work directly from the terminal without requiring Make orchestration.
 
 ---
 
@@ -81,7 +80,7 @@ Daily interactive tooling must be immediate, transparent, and low-friction:
 │  - Include guards: ifndef MOD_GIT                      │
 │  - Set accumulation: COMMON_PKGS += ..., DEBIAN_PKGS +=│
 │  - Dependency graph: emacs: sys-pkgs git stow          │
-│  - Cache invalidation: .state/sys-pkgs.stamp           │
+│  - Cache invalidation: $(STATE_DIR)/sys-pkgs.stamp     │
 └───────────────────────────┬────────────────────────────┘
                             │ export COMMON_PKGS DEBIAN_PKGS ...
                             ▼
@@ -89,8 +88,8 @@ Daily interactive tooling must be immediate, transparent, and low-friction:
 │ SHELL SCRIPT LAYER (Host-Aware Execution)              │
 │                                                        │
 │  - install-sys-pkg: sources os.sh                      │
-│  - Standalone CLI: install-sys-pkg ripgrep fd-find     │
-│  - Batch Mode: install-sys-pkg (reads exported vars)   │
+│  - dot: applies modules into $HOME via Stow            │
+│  - vault: manages ~/.vault permissions and syncing     │
 └────────────────────────────────────────────────────────┘
 ```
 
@@ -99,22 +98,22 @@ Daily interactive tooling must be immediate, transparent, and low-friction:
 The build system relies on native GNU Make Directed Acyclic Graphs (DAG) and in-memory set accumulation:
 1. When invoking `make <target>`, Make includes only `modules/<target>/<target>.mk`.
 2. Target modules recursively pull their dependencies via `include` directives protected by `ifndef MOD_<NAME>` include guards.
-3. Modules not in the target's dependency tree are never parsed. Their packages never leak into the build.
+3. Modules not in the target's dependency tree are never parsed; their package declarations never enter the build.
 4. Duplicate dependencies evaluate exactly once, preserving parallel build safety under `-j`.
 
 ### 2.2 Distro Package Accumulation (Zero-Condition Declarations)
 
-Modules do not contain repetitive `ifeq ($(DISTRO),...)` blocks. They append package requirements to flat, distro-specific variables:
+Modules do not contain repetitive conditional blocks. They append package requirements to flat, distro-specific variables:
 
 ```makefile
-COMMON_PKGS += pandoc
+COMMON_PKGS += ripgrep tmux
 DEBIAN_PKGS += emacs-gtk elpa-magit
 TERMUX_PKGS += emacs
 ```
 
 The root `Makefile` exports these variables to subprocesses.
 
-### 2.3 The `sys-pkgs` Barrier & Cache Invalidation
+### 2.3 The `sys-pkgs` Barrier & Self-Healing Cache
 
 System package installation is governed by a hidden stamp file:
 
@@ -128,9 +127,9 @@ $(STATE_DIR)/sys-pkgs.stamp: $(MAKEFILE_LIST)
 sys-pkgs: $(STATE_DIR)/sys-pkgs.stamp
 ```
 
-- **Self-Healing Timestamp Checking:** `.state/sys-pkgs.stamp` depends directly on `$(MAKEFILE_LIST)`. If any loaded module file is edited, Make detects the newer timestamp and executes `install-sys-pkg`.
+- **Automatic Invalidation:** `.state/sys-pkgs.stamp` depends on `$(MAKEFILE_LIST)`. If any loaded module file is edited, Make detects the newer timestamp and executes `install-sys-pkg`.
 - **Instant No-Op:** If no module makefile has changed, `sys-pkgs` resolves in 0.001 seconds.
-- **Explicit Target Prerequisites:** Modules explicitly declare `sys-pkgs` (e.g., `emacs: sys-pkgs git stow`), guaranteeing packages exist before dotfiles are linked or scripts are run.
+- **Explicit Target Prerequisites:** Modules declare `sys-pkgs` before stowing files or running build steps.
 
 ---
 
@@ -140,14 +139,14 @@ sys-pkgs: $(STATE_DIR)/sys-pkgs.stamp
 
 The system package delivery tool operates in two distinct modes:
 
-1. **Batch Mode (Called by Make):**
-   Invoked with no arguments. It auto-detects `$DISTRO` via `os.sh`, resolves the matching `$DEBIAN_PKGS`, `$TERMUX_PKGS`, or `$ALPINE_PKGS` set alongside `$COMMON_PKGS`, deduplicates the union, and runs the package manager.
+1. **Batch Mode (Orchestrated by Make):**
+   Invoked with no arguments. It auto-detects `$DISTRO` via `os.sh`, resolves the matching `$DEBIAN_PKGS`, `$TERMUX_PKGS`, `$ALPINE_PKGS`, or `$FREEBSD_PKGS` set alongside `$COMMON_PKGS`, deduplicates the union, and runs the system package manager.
 2. **Standalone Mode (Interactive CLI):**
-   Invoked with arguments directly by the operator:
+   Invoked with package names directly by the operator:
    ```sh
    install-sys-pkg ripgrep tmux fzf
    ```
-   It auto-detects the host distro and executes the underlying package manager (`apt-get`, `pkg`, `apk`, or BSD `pkg`) with privilege escalation where appropriate.
+   It auto-detects the host distro and executes the underlying package manager (`apt-get`, `pkg`, or `apk`) with privilege escalation where appropriate.
 
 ### 3.2 `fetch-bin` (User-Space Binary Fallback)
 
@@ -159,44 +158,66 @@ Used for rootless environments (Pubnix), fast-moving CLI tools, or packages miss
 
 ---
 
-## 4. Sovereign Vault Subsystem (`~/.vault`)
+## 4. Dotfile Management Subsystem (`dot`)
 
-Sensitive configurations, private credentials, and personal keys reside in an unencrypted Git repository at:
+The `dot` CLI wraps GNU Stow with safe pre-flight conflict resolution and concurrency locking.
+
+### 4.1 Structural Rules
+
+- **Native `--no-folding`:** Stow is strictly executed with `--no-folding`. Directories in `$HOME` (such as `~/.config/autostart` or `~/.ssh`) are always real directories, never symlinks. Only individual leaf files are symlinked.
+- **Conflict Handling:**
+  - **Unmanaged Host Files:** If an unmanaged real file (such as a default `/etc/skel/.bashrc`) blocks a link, `dot` moves it to `~/.local/state/dot/backup/` before Stow runs.
+  - **Stale or Overridden Symlinks:** If an existing symlink points elsewhere, it is unlinked (`rm -f`) so Stow can point it to the active module.
+  - **Shared Directories:** Multiple modules can safely place files in the same directory (e.g. `desktop` and `vault` both placing desktop entries in `~/.config/autostart/`) without colliding.
+
+### 4.2 CLI Usage
+
+```sh
+# Apply module(s) from current or specified MODULES_DIR
+dot apply <module...>
+
+# Unlink module(s)
+dot remove <module...>
+
+# List available modules
+dot ls
+```
+
+---
+
+## 5. Sovereign Vault Subsystem (`~/.vault`)
+
+Private configurations, SSH keys, credentials, and machine-specific secrets reside in an unencrypted Git repository at:
 
 ```text
 ~/.vault/
 ```
 
-### 4.1 Solving the SSH Chicken-and-Egg Dilemma
+### 5.1 Architecture & Separation
 
-On a fresh node, you cannot clone `~/.vault` over SSH because the SSH private key required to authenticate against the server is stored *inside* the vault itself.
+The vault mirrors the modular layout of the system repository:
 
-`modules/vault/setup` handles this structurally:
+```text
+~/.vault/
+├── ssh/                      # ~/.ssh/id_ed25519, config
+├── git/                      # ~/.gitconfig (private signing keys/email)
+├── rclone/                   # ~/.config/rclone/rclone.conf
+└── base/                     # Core private configurations
+```
 
-1. **Raw Seed / Cold Backup (Recommended for new nodes):**
-   Unpack a cold backup archive into `~/.vault`:
-   ```sh
-   backup restore /path/to/vault-seed.tar.gz.age ~/.vault
-   ```
-   When `make vault` or `make desktop` runs, `vault/setup` detects raw files without `.git`, initializes a local repository (`git -C ~/.vault init -b main`), attaches the remote `origin`, locks permissions, and applies dotfiles. **Zero network calls are made.**
-2. **Existing Clone:**
-   If `~/.vault/.git` is present, it updates the remote URL, enforces permissions, and applies modules.
-3. **Network Clone:**
-   If `~/.vault` is empty and SSH credentials are provided (e.g., via agent forwarding `ssh -A`), it clones from the remote VPS.
-
-### 4.2 Permission Enforcement
+### 5.2 Permission Enforcement
 
 All vault files are programmatically locked to prevent permission leaks:
 - Directories: `0700`
-- Regular files: `0600`
 - Executable files: `0700`
+- Regular files: `0600`
 
-Manual enforcement:
+Permission clamping runs automatically on `vault apply`, `vault sync`, and can be triggered manually via:
 ```sh
 vault chmod
 ```
 
-### 4.3 Applying Vault Modules
+### 5.3 Automated Profile Integration
 
 Profiles declare the vault modules they require using standard variable accumulation:
 
@@ -204,11 +225,38 @@ Profiles declare the vault modules they require using standard variable accumula
 VAULT_MODULES += ssh base git rclone
 ```
 
-`vault/setup` reads `$VAULT_MODULES` directly from the environment and executes `vault apply <mod>` via GNU Stow.
+When `make vault` or `make base` runs, `modules/vault/vault.mk` reads `$VAULT_MODULES` and executes `vault apply $(VAULT_MODULES)`.
+
+### 5.4 CLI Usage
+
+```sh
+# Initialize new vault or attach remote origin
+vault init [remote-git-url]
+
+# Commit all changes, rebase from upstream, and push
+vault sync
+
+# Apply modules to $HOME (clamps 600/700 permissions and runs dot apply)
+vault apply <module...>
+
+# Unlink vault modules
+vault remove <module...>
+
+# Enforce strict 600/700 permissions across the vault tree
+vault chmod
+
+# List available modules in ~/.vault
+vault ls
+
+# Direct Git pass-through inside ~/.vault
+vault git status
+vault git diff
+vault git log
+```
 
 ---
 
-## 5. Repository Layout
+## 6. Repository Layout
 
 ```text
 .
@@ -218,8 +266,8 @@ VAULT_MODULES += ssh base git rclone
 ├── .state/                       # Ephemeral build stamps and state (git-ignored)
 └── modules/
     ├── base/                     # Core OS dependencies, recipes, and utilities
-    ├── bin/                      # System binaries: dot, install-sys-pkg, backup, vault, fetch-bin
-    ├── crontab/                  # Automated scheduled maintenance
+    ├── bin/                      # System binaries: dot, install-sys-pkg, vault, fetch-bin
+    ├── crontab/                  # Scheduled maintenance configurations
     ├── desktop/                  # Debian desktop GUI node profile
     ├── dev/                      # Compilers, linters, shells, and editor tools
     ├── docker-base/              # Container base environment profile
@@ -228,12 +276,12 @@ VAULT_MODULES += ssh base git rclone
     ├── lib/                      # Shared shell libraries (os.sh, fetch.sh)
     ├── phone/                    # Termux mobile node profile
     ├── pubnix/                   # Rootless shared UNIX node profile
-    ├── recipes/                  # Standalone maintenance Makefiles (backup.mk)
+    ├── recipes/                  # Maintenance recipes
     ├── shell/                    # .bashrc, .profile, .inputrc
-    ├── ssh/                      # Public SSH keys and configurations
+    ├── ssh/                      # Public SSH configurations and keys
     ├── stow/                     # GNU Stow bootstrap and wrappers
-    ├── vault/                    # Sovereign vault setup hooks
-    └── wireproxy/                # Wireguard userspace proxy
+    ├── vault/                    # Sovereign vault integration hooks
+    └── wireproxy/                # WireGuard userspace proxy
 ```
 
 Each module is self-contained:
@@ -241,61 +289,38 @@ Each module is self-contained:
 ```text
 modules/<name>/
 ├── <name>.mk                     # Declarative rules, packages, and include guards
-├── dotfiles/                     # Files symlinked to target by GNU Stow
-└── install                       # User-space binary fetcher script (if needed)
+├── dotfiles/                     # Files symlinked to target by dot
+└── install                       # Binary fetcher script (if needed)
 ```
 
 ---
 
-## 6. Node Commissioning Manual
+## 7. Node Commissioning Manual
 
-### 6.1 Preparing the Trust Root
-
-Choose one of two root-of-trust bootstrap paths:
-
-#### Path A: Cold Seed (Offline / Air-Gapped)
-On an existing authorized machine, create an encrypted vault backup:
-```sh
-backup create ~/.vault ~/vault-seed.tar.gz.age
-```
-Transfer `vault-seed.tar.gz.age` and your `age` secret key to the target node via USB.
-
-#### Path B: SSH Agent Forwarding (Remote Provisioning)
-Connect to the clean node while forwarding your active SSH agent:
-```sh
-ssh -A user@target-node
-```
-
----
-
-### 6.2 Desktop Node (Debian 13+)
+### 7.1 Desktop Node (Debian 13+)
 
 Target: Physical workstation, LUKS encryption, non-root user with `sudo`.
 
 ```sh
-# 1. Unpack or clone system repository
+# 1. Clone system repository
 mkdir -p ~/projects
 git clone <SYSTEM_REPO_URL> ~/projects/system
 cd ~/projects/system
 
-# 2. If bootstrapping via Cold Seed: restore vault files before running make
-backup restore /path/to/vault-seed.tar.gz.age ~/.vault
-
-# 3. Prime host and deploy desktop profile in one step
+# 2. Prime host and deploy desktop profile
 ./bootstrap desktop
 
-# 4. If bootstrapping via SSH Agent Forwarding (no cold seed used):
-# Initialize vault from remote bare repo
-vault init repos:srv/git/vault.git
+# 3. Initialize vault (if not already present)
+vault init <VAULT_REPO_URL>
 make vault
 
-# 5. Reload session
+# 4. Reload session
 exec bash -l
 ```
 
 ---
 
-### 6.3 Mobile Node (Android / Termux)
+### 7.2 Mobile Node (Android / Termux)
 
 Target: Android device, Termux user-space environment.
 
@@ -308,11 +333,12 @@ mkdir -p ~/projects
 git clone <SYSTEM_REPO_URL> ~/projects/system
 cd ~/projects/system
 
-# 3. Restore cold vault backup from shared storage
-backup restore /sdcard/Download/vault-seed.tar.gz.age ~/.vault
-
-# 4. Prime host and deploy phone profile
+# 3. Prime host and deploy phone profile
 ./bootstrap phone
+
+# 4. Initialize vault (if not already present)
+vault init <VAULT_REPO_URL>
+make vault
 
 # 5. Reload session
 exec bash -l
@@ -320,7 +346,7 @@ exec bash -l
 
 ---
 
-### 6.4 Container Node (Docker Base)
+### 7.3 Container Node (Docker Base)
 
 Target: Minimal headless Debian 13 container.
 
@@ -338,9 +364,9 @@ The container automatically invokes `./bootstrap docker-base`, prunes APT recomm
 
 ---
 
-### 6.5 Pubnix Node (Shared Rootless UNIX)
+### 7.4 Pubnix Node (Shared Rootless UNIX)
 
-Target: Multi-user tilde server, no root access.
+Target: Multi-user shared server, no root access.
 
 ```sh
 # 1. Clone repository
@@ -351,17 +377,21 @@ cd ~/projects/system
 # 2. Bootstrap pubnix profile (runs user-space stow, skips sudo apt)
 ./bootstrap pubnix
 
-# 3. Reload session
+# 3. Initialize vault
+vault init <VAULT_REPO_URL>
+make vault
+
+# 4. Reload session
 exec bash -l
 ```
 
 ---
 
-## 7. Daily Operator Workflows
+## 8. Daily Operator Workflows
 
 ### Target Execution & Updates
 
-Deploy or update profiles:
+Deploy or update entire profiles:
 ```sh
 cd ~/projects/system
 git pull --rebase
@@ -399,38 +429,20 @@ install-sys-pkg ripgrep
 
 ### Sovereign Vault Operations
 
-Synchronize uncommitted vault state with the trusted private VPS:
+Synchronize uncommitted vault state with the remote Git server:
 ```sh
 vault sync
 ```
 
 Inspect vault status and module links:
 ```sh
-vault status
+vault git status
+vault ls
 ```
 
-Enforce strict 600/700 permissions:
+Enforce strict 600/700 permissions manually:
 ```sh
 vault chmod
-```
-
-Spawn a subshell inside the vault:
-```sh
-vault cd
-```
-
----
-
-### Encrypted Cold Backups
-
-Create a streaming encrypted archive of the vault:
-```sh
-backup create ~/.vault ~/backups/vault-$(date +%F).tar.gz.age
-```
-
-Restore an encrypted archive:
-```sh
-backup restore ~/backups/vault-2026-10-05.tar.gz.age ~/.vault
 ```
 
 ---
@@ -447,7 +459,7 @@ Format all repository shell scripts in place:
 make fmt
 ```
 
-Run an automated design review using Aider:
+Run an automated design review on the latest commit:
 ```sh
 make review
 ```
