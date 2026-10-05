@@ -17,5 +17,6 @@ PHONE_MODULES := base shell rclone restic vault git ssh stow
 .PHONY: phone
 phone: sys-pkgs $(PHONE_MODULES)
 	@MODULES_DIR="$(MODULES_DIR)/phone" dot apply dotfiles
+	@vault apply base git rclone ssh
 	@echo "✓ Phone profile applied successfully."
 endif

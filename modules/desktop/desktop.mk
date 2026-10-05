@@ -22,5 +22,6 @@ DESKTOP_MODULES := restic stow base dev anki keepassxc firefox emacs xclip cront
 .PHONY: desktop
 desktop: sys-pkgs $(DESKTOP_MODULES)
 	@MODULES_DIR="$(MODULES_DIR)/desktop" dot apply dotfiles
+	@vault apply base git rclone ssh
 	@echo "✓ Desktop profile applied successfully."
 endif
