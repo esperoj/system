@@ -1,56 +1,11 @@
 #!/bin/sh
-set -e
-
-MAKE_VERSION=$(make --version | head -n 1 | grep -Eo '[0-9]+\.[0-9]+' | head -n 1)
-echo "Found $MAKE_VERSION"
+set -eu
 
 if [ $# -eq 0 ]; then
-	echo "Usage: $0 <target1> [target2...]"
+	echo "Usage: ./configure <target>"
+	echo "Notice: ./configure is now optional. You can run 'make <target>' directly."
 	exit 1
 fi
 
-KV_STORE="${KV_STORE:-$(pwd)/.kv-store}"
-
-# Make relative paths absolute
-case "$KV_STORE" in
-/*) ;;
-*)
-	KV_STORE="$(pwd)/$KV_STORE"
-	;;
-esac
-
-# Reject path traversal
-case "$KV_STORE" in
-*..*)
-	echo "configure: unsafe KV_STORE contains '..': $KV_STORE" >&2
-	exit 1
-	;;
-esac
-
-# Require a dedicated .kv-store path
-case "$KV_STORE" in
-*/.kv-store) ;;
-*)
-	echo "configure: unsafe KV_STORE: $KV_STORE (must end with /.kv-store)" >&2
-	exit 1
-	;;
-esac
-
-# Refuse filesystem root
-if [ "$KV_STORE" = "/.kv-store" ]; then
-	echo "configure: refusing to use /.kv-store" >&2
-	exit 1
-fi
-
-rm -rf "$KV_STORE"
-mkdir -p "$KV_STORE"
-
-MAKE_TARGETS=""
-for arg in "$@"; do
-	MAKE_TARGETS="$MAKE_TARGETS ${arg}-cfg"
-done
-
-echo "==> Configuring node state: make$MAKE_TARGETS"
-
-# shellcheck disable=SC2086
-make $MAKE_TARGETS
+echo ":: './configure $@' -> invoking 'make $@' directly..."
+exec make "$@"

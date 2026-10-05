@@ -1,4 +1,4 @@
-.kv-store
+.state/
 .vault/
 backups/
 workspace/
