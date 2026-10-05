@@ -43,9 +43,15 @@ cmd_sync() {
 		if ! git diff --cached --quiet; then
 			git commit -m "vault: $(uname -n) $(date '+%F %T')"
 		fi
-		if git remote | grep -q .; then
-			git pull --rebase --autostash 2>/dev/null || true
-			git push -u origin HEAD 2>/dev/null || true
+		if [ -n "$(git remote)" ]; then
+			# Pull only once an upstream exists (fresh init has none yet);
+			# failures from here on are real and must surface.
+			if git rev-parse --abbrev-ref '@{upstream}' >/dev/null 2>&1; then
+				git pull --rebase --autostash
+			fi
+			git push -u origin HEAD
+		else
+			echo "vault: no remote configured; changes are local only" >&2
 		fi
 	)
 	lock_perms

@@ -48,6 +48,28 @@ stash() {
 	done
 }
 
+# Remove stale symlinks: links left dangling in TARGET when a file (or
+# module) is removed from the repository. Only links whose target resolves
+# under MODULES_DIR are touched — foreign or intentionally broken links
+# elsewhere in $HOME are never pruned.
+# (Portable broken-link test; GNU find could use -xtype l instead.)
+prune() {
+	find "$TARGET" -type l ! -exec test -e {} \; -print |
+		while IFS= read -r link || [ -n "$link" ]; do
+			text=$(readlink "$link") || continue
+			case "$text" in
+			/*) dir=$(cd "$(dirname "$text")" 2>/dev/null && pwd -P) || continue ;;
+			*) dir=$(cd "$(dirname "$link")/$(dirname "$text")" 2>/dev/null && pwd -P) || continue ;;
+			esac
+			case "$dir" in
+			"$MODULES_DIR" | "$MODULES_DIR"/*)
+				rm -f "$link"
+				echo "dot: pruned $link"
+				;;
+			esac
+		done
+}
+
 case "${1:-}" in
 apply)
 	shift
@@ -60,10 +82,13 @@ remove)
 	[ $# -ge 1 ] || die "usage: dot remove <module...>"
 	stow -D -v --no-folding -d "$MODULES_DIR" -t "$TARGET" "$@"
 	;;
+prune)
+	prune
+	;;
 ls)
 	find "$MODULES_DIR" -mindepth 1 -maxdepth 1 -type d ! -name '.*' -exec basename {} \; | LC_ALL=C sort
 	;;
 *)
-	die "usage: dot {apply|remove|ls} [module...]"
+	die "usage: dot {apply|remove|prune|ls} [module...]"
 	;;
 esac
