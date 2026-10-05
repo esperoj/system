@@ -6,6 +6,7 @@ LIB="${LIB_DIR:-$HOME/.local/lib}/sh/os.sh"
 	echo "<script>: os.sh not found at $LIB (run 'make base' first)" >&2
 	exit 1
 }
+# shellcheck source=/dev/null
 . "$LIB"
 # Determine packages to install
 if [ $# -gt 0 ]; then
@@ -17,6 +18,7 @@ else
 fi
 
 # Deduplicate
+# shellcheck disable=SC2086
 PKGS=$(printf '%s\n' $PKGS | sort -u | tr '\n' ' ' | sed 's/^ //;s/ $//')
 
 [ -n "$PKGS" ] || exit 0

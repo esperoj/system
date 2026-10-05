@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
 
+# shellcheck source=/dev/null
 . "${LIB_DIR}/sh/os.sh"
 
 ARCH_7Z=$([ "$ARCH" = "amd64" ] && echo "x64" || echo "$ARCH")

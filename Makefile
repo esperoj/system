@@ -52,7 +52,7 @@ clean-state:
 	rm -rf $(STATE_DIR)
 
 # --- Shared Shell Script Finder ---
-FIND_SHELL = find bootstrap modules -type f \( -name '*.sh' -o -name 'configure' -o -name 'install' -o -name 'setup' -o -path '*/.local/bin/*' -o -path '*/.local/lib/sh/*' \) -print0
+FIND_SHELL = find bootstrap modules -type f \( -name '*.sh' -o -name 'configure' -o -name 'install' -o -name 'setup' -o -name 'bootstrap' -o -path '*/.local/bin/*' -o -path '*/.local/lib/sh/*' \) -print0
 
 help:
 	@echo "Usage: make <target>"

@@ -4,58 +4,60 @@ set -eu
 
 # Source OS detection engine directly
 if [ -f "./modules/lib/dotfiles/.local/lib/sh/os.sh" ]; then
-    . "./modules/lib/dotfiles/.local/lib/sh/os.sh"
+	# shellcheck source=/dev/null
+	. "./modules/lib/dotfiles/.local/lib/sh/os.sh"
 elif [ -f "$HOME/.local/lib/sh/os.sh" ]; then
-    . "$HOME/.local/lib/sh/os.sh"
+	# shellcheck source=/dev/null
+	. "$HOME/.local/lib/sh/os.sh"
 else
-    echo "bootstrap: unable to locate os.sh" >&2
-    exit 1
+	echo "bootstrap: unable to locate os.sh" >&2
+	exit 1
 fi
 
 # GNU Make binary name per platform (FreeBSD ships BSD make as 'make')
 if [ "$DISTRO" = "freebsd" ]; then
-    MAKE_BIN=gmake
+	MAKE_BIN="gmake"
 else
-    MAKE_BIN=make
+	MAKE_BIN="make"
 fi
 
 # Install GNU Make if missing
 if ! command -v "$MAKE_BIN" >/dev/null 2>&1; then
-    echo ":: GNU Make not found. Bootstrapping toolchain for [$DISTRO]..."
+	echo ":: GNU Make not found. Bootstrapping toolchain for [$DISTRO]..."
 
-    SUDO=""
-    if [ "$DISTRO" != "termux" ] && [ "$(id -u)" -ne 0 ]; then
-        if command -v sudo >/dev/null 2>&1; then
-            SUDO="sudo"
-        else
-            echo "Warning: Not root and 'sudo' unavailable. Make installation may fail." >&2
-        fi
-    fi
+	SUDO=""
+	if [ "$DISTRO" != "termux" ] && [ "$(id -u)" -ne 0 ]; then
+		if command -v sudo >/dev/null 2>&1; then
+			SUDO="sudo"
+		else
+			echo "Warning: Not root and 'sudo' unavailable. Make installation may fail." >&2
+		fi
+	fi
 
-    case "$DISTRO" in
-    debian)
-        export DEBIAN_FRONTEND=noninteractive
-        $SUDO apt-get update -qq
-        $SUDO apt-get install -y --no-install-recommends make
-        ;;
-    termux)
-        pkg update -y
-        pkg install -y make
-        ;;
-    alpine)
-        $SUDO apk update -q
-        $SUDO apk add --no-cache make
-        ;;
-    freebsd)
-        $SUDO pkg update
-        $SUDO pkg install -y gmake
-        ;;
-    *)
-        echo "bootstrap: unsupported distribution '$DISTRO'. Please install GNU make manually." >&2
-        exit 1
-        ;;
-    esac
-    echo "✓ GNU Make successfully installed."
+	case "$DISTRO" in
+	debian)
+		export DEBIAN_FRONTEND=noninteractive
+		$SUDO apt-get update -qq
+		$SUDO apt-get install -y --no-install-recommends make
+		;;
+	termux)
+		pkg update -y
+		pkg install -y make
+		;;
+	alpine)
+		$SUDO apk update -q
+		$SUDO apk add --no-cache make
+		;;
+	freebsd)
+		$SUDO pkg update
+		$SUDO pkg install -y gmake
+		;;
+	*)
+		echo "bootstrap: unsupported distribution '$DISTRO'. Please install GNU make manually." >&2
+		exit 1
+		;;
+	esac
+	echo "✓ GNU Make successfully installed."
 fi
 
 echo ":: Bootstrapping complete. Handing off to '$MAKE_BIN $*'..."

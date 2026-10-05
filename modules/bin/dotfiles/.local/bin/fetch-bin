@@ -14,11 +14,13 @@ BIN_NAME="${3:-}"
 DEST_PATH="${4:-$HOME/.local/bin}"
 
 # Standard library resolution: $LIB_DIR (set by Make) or the installed path.
+# shellcheck source=/dev/null
 LIB="${LIB_DIR:-$HOME/.local/lib}/sh/fetch.sh"
 [ -f "$LIB" ] || {
 	echo "fetch-bin: fetch.sh not found at $LIB (run 'make base' first)" >&2
 	exit 1
 }
+# shellcheck source=/dev/null
 . "$LIB"
 
 TMP_DIR=$(mktemp -d -t fetch-bin-XXXXXX)

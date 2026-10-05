@@ -35,6 +35,8 @@ stash() {
 
 			if [ -L "$tgt" ]; then
 				# If already pointing to this source file, no-op
+				# shellcheck disable=SC3013
+
 				[ "$tgt" -ef "$src" ] && continue
 				# Stale or overridden symlink: remove pointer so Stow links cleanly
 				rm -f "$tgt"

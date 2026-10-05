@@ -5,7 +5,7 @@ LOG_DIR="$HOME/log/daily-cron"
 LOG_FILE="$LOG_DIR/$(date -I).log"
 
 mkdir -p "$LOG_DIR"
-
+# shellcheck source=/dev/null
 . ~/.profile
 
 make \

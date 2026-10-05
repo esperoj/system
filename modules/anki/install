@@ -5,7 +5,9 @@ LIB="${LIB_DIR:-$HOME/.local/lib}/sh/os.sh"
 	echo "<script>: os.sh not found at $LIB (run 'make base' first)" >&2
 	exit 1
 }
+# shellcheck source=/dev/null
 . "$LIB"
+# shellcheck source=/dev/null
 . "${LIB_DIR:-$HOME/.local/lib}/sh/fetch.sh"
 
 PREFIX="${HOME}/.local"
