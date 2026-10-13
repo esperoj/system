@@ -1,14 +1,11 @@
 when:
-  - event: [pull_request, cron, manual]
-  - event: push
-    branch:
-      - ${CI_REPO_DEFAULT_BRANCH}
+  - event: [cron, manual]
 
 labels:
   platform: linux/amd64
 
 variables:
-  build_plugin: &build_plugin "codefloe.com/crow-plugins/docker-buildx:v1.0.0"
+  build_plugin: &build_plugin "codefloe.com/crow-plugins/docker-buildx"
 
   build_args: &build_args
     CI_COMMIT_SHA: ${CI_COMMIT_SHA}
