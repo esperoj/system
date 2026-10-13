@@ -40,7 +40,7 @@ all: daily
 # 2. Sync workspace, backups, and machine-specific media
 # 3. Snapshot after sync
 # 4. Clean/prune
-daily: pre-snap .WAIT sync-workspace sync-backups sync-media .WAIT snap .WAIT clean
+daily: snap .WAIT sync-workspace sync-backups sync-media
 
 info:
 	@echo "======================================================================"
@@ -96,15 +96,10 @@ resync: info
 	mkdir -p $(BACKUP_DIR)
 	rclone bisync $(BACKUP_DIR) $(BACKUPS_RCLONE_REMOTE) --resync --verbose --fast-list
 
-pre-snap: info
-	@mkdir -p $(BACKUP_DIR)
-	echo "--> Taking pre-sync restic snapshot of BACKUPS folder..."
-	restic backup $(BACKUP_DIR) --verbose --exclude-caches --tag pre-sync
-
 snap: info
 	@mkdir -p $(BACKUP_DIR)
 	echo "--> Taking post-sync restic snapshot of BACKUPS folder..."
-	restic backup $(BACKUP_DIR) --verbose --exclude-caches --tag post-sync
+	restic backup $(BACKUP_DIR) --verbose --exclude-caches --tag backups
 
 clean: info
 	@echo "--> Releasing repository lock threads & purging retention indexes..."
