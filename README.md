@@ -1,6 +1,3 @@
-Rewritten README below. The rule I applied throughout: every absolute claim from the old version ("offline-first", implied POSIX purity) is either now actually true, or explicitly declared as a bend with the reason. No aspiration left in the document — only behavior.
-
-````markdown
 # Sovereign Computing Environment & Node Specification
 
 ## 1. Purpose & Philosophy
@@ -416,13 +413,3 @@ convenience, not part of the build.
 | Debian 13 — desktop, containers | Maintained; daily driver |
 | Termux — phone | Maintained; daily driver |
 | Alpine, FreeBSD | Code paths exist in `bootstrap`/`install-sys-pkg`; untested. Treat as unverified until exercised. |
-````
-
-Four lines depend on things I haven't seen the final state of — flip them if needed:
-
-- **§7.3** assumes the Dockerfile still ships the sudo user. If you did the root-stage restructure (no sudo in the image), replace the last paragraph with: "Packages are installed in the root build stage; the runtime user has no sudo."
-- **§9 host table** — if you pruned the alpine/freebsd branches, delete that row.
-- **§2.1/§2.4** assume `refactor-modules.sh` ran (single lists + `@$(stow-module)`). If it hasn't, the README currently describes the target shape — run the migration so the two match.
-- The bash wording is shebang-based ("the shebang is the source of truth"), so it stays accurate regardless of whether you converted `daily`/`anki`.
-
-Everything else is written against behavior we implemented and verified together: stamp semantics, `vault sync` failure modes, `dot prune` scope and limit, fetch-bin candidate rules, the library contract, and the three shellcheck exception classes.
