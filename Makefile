@@ -115,3 +115,13 @@ review:
 	git show HEAD >> "$$msg_file"
 	model="$${AIDER_MODEL:-gemini/gemini-flash-latest}"
 	aider --model "$$model" --read README.md --message-file "$$msg_file"
+
+.PHONY: setup-remotes
+
+setup-remotes:
+        @git config --remove-section remote.origin
+        git remote add origin git@github.com:esperoj/system.git
+        git remote set-url --push origin git@github.com:esperoj/system.git
+        git remote set-url --add --push origin git@codefloe.com:esperoj/system.git
+        echo "Remotes configured:"
+        git remote -v
