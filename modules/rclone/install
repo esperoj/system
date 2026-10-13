@@ -4,7 +4,7 @@ set -eu
 # shellcheck source=/dev/null
 . "${LIB_DIR}/sh/os.sh"
 
-if ! command -v rclone >/dev/null 2>&1; then
+if [ ! -f "$HOME/.local/bin/rclone" ]; then
 	echo "Installing rclone..."
 	fetch-bin "gh:rclone/rclone" "linux-${ARCH}\.zip$" "rclone" "$HOME/.local/bin/rclone"
 else

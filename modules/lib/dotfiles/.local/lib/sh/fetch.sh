@@ -5,7 +5,7 @@ set -eu
 # Resolve input to a concrete download URL
 # Supports:
 #   - Direct HTTP/HTTPS URLs (passthrough)
-#   - GitHub repos via "gh:owner/repo" [regex] (resolves tag & asset via API or HTML fallback)
+#   - GitHub repos via "gh:owner/repo" [regex] (API with sed/jq + expanded_assets web fallback)
 fetch_resolve_url() {
 	_source="$1"
 	_pattern="${2:-}"
@@ -16,30 +16,56 @@ fetch_resolve_url() {
 	gh:*)
 		_repo="${_source#gh:}"
 		if [ -n "$_pattern" ]; then
-			_api_url="https://api.github.com/repos/${_repo}/releases/latest"
-
-			# FIX 4: Support GITHUB_TOKEN to avoid unauthenticated rate limits (60 req/hr)
-			if [ -n "${GITHUB_TOKEN:-}" ]; then
-				_json=$(curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" "$_api_url" 2>/dev/null) || _json=""
-			else
-				_json=$(curl -fsSL "$_api_url" 2>/dev/null) || _json=""
-			fi
-
 			_url=""
-			# FIX 5: Use jq for robust JSON parsing instead of brittle grep/cut
-			if [ -n "$_json" ] && echo "$_json" | jq -e '.assets' >/dev/null 2>&1; then
-				_url=$(echo "$_json" | jq -r '.assets[].browser_download_url' | grep -E "$_pattern" | head -n 1)
+
+			# 1. Attempt GitHub REST API (authenticated or unauthenticated)
+			_api_url="https://api.github.com/repos/${_repo}/releases/latest"
+			_auth_header=""
+			[ -n "${GITHUB_TOKEN:-}" ] && _auth_header="Authorization: Bearer ${GITHUB_TOKEN}"
+
+			if [ -n "$_auth_header" ]; then
+				_json=$(curl -fsSL -H "User-Agent: fetch-bin" -H "Accept: application/vnd.github+json" -H "$_auth_header" "$_api_url" 2>/dev/null) || _json=""
+			else
+				_json=$(curl -fsSL -H "User-Agent: fetch-bin" -H "Accept: application/vnd.github+json" "$_api_url" 2>/dev/null) || _json=""
 			fi
 
-			# FIX 4 & 5: Fallback to HTML scraping if API failed, rate-limited, or returned no match
+			if [ -n "$_json" ]; then
+				# If jq is available, use it; otherwise parse with POSIX sed (breaks chicken-and-egg dependency)
+				if command -v jq >/dev/null 2>&1; then
+					_url=$(printf '%s\n' "$_json" | jq -r '.assets[].browser_download_url // empty' 2>/dev/null | grep -E "$_pattern" | head -n 1 || true)
+				fi
+				if [ -z "$_url" ]; then
+					_url=$(printf '%s\n' "$_json" | sed -n 's/.*"browser_download_url":[[:space:]]*"\([^"]*\)".*/\1/p' | grep -E "$_pattern" | head -n 1 || true)
+				fi
+			fi
+
+			# 2. Fallback: Scrape GitHub's expanded_assets fragment (bypasses API rate limits)
 			if [ -z "$_url" ]; then
-				echo "fetch: GitHub API failed or rate-limited for ${_repo}, falling back to HTML scraping..." >&2
-				_html=$(curl -fsSL "https://github.com/${_repo}/releases/latest" 2>/dev/null) || _html=""
-				if [ -n "$_html" ]; then
-					# Extract download URLs from HTML release assets
-					_url=$(echo "$_html" | grep -oE 'href="[^"]+/releases/download/[^"]+"' | sed 's/^href="//;s/"$//' | grep -E "$_pattern" | head -n 1)
+				_html_rel=$(curl -fsSL "https://github.com/${_repo}/releases/latest" 2>/dev/null) || _html_rel=""
+				_assets_path=$(printf '%s\n' "$_html_rel" | grep -oE '[^"]*expanded_assets/[^"]+' | head -n 1 || true)
+
+				_assets_url=""
+				if [ -n "$_assets_path" ]; then
+					case "$_assets_path" in
+					http://* | https://*) _assets_url="$_assets_path" ;;
+					/*) _assets_url="https://github.com${_assets_path}" ;;
+					*) _assets_url="https://github.com/${_assets_path}" ;;
+					esac
+				else
+					# Derive tag from redirect if the fragment tag was not in the HTML
+					_tag=$(curl -fsSL -o /dev/null -w '%{url_effective}' "https://github.com/${_repo}/releases/latest" 2>/dev/null | sed -e 's|.*/releases/tag/||' -e 's|.*/tag/||')
+					if [ -n "$_tag" ] && [ "$_tag" != "https://github.com/${_repo}/releases/latest" ]; then
+						_assets_url="https://github.com/${_repo}/releases/expanded_assets/${_tag}"
+					fi
+				fi
+
+				if [ -n "$_assets_url" ]; then
+					_html_assets=$(curl -fsSL "$_assets_url" 2>/dev/null) || _html_assets=""
+					_url=$(printf '%s\n' "$_html_assets" | grep -oE 'href="[^"]*/releases/download/[^"]+"' | sed -e 's/^href="//' -e 's/"$//' -e 's/[?#].*//' | grep -E "$_pattern" | head -n 1 || true)
 					if [ -n "$_url" ]; then
-						_url="https://github.com${_url}"
+						case "$_url" in
+						/*) _url="https://github.com${_url}" ;;
+						esac
 					fi
 				fi
 			fi
@@ -51,7 +77,7 @@ fetch_resolve_url() {
 			echo "$_url"
 		else
 			# Resolve latest tag via redirect for source tarballs
-			_tag=$(curl -fsSIL -o /dev/null -w '%{url_effective}' "https://github.com/${_repo}/releases/latest" 2>/dev/null | sed 's|.*/tag/||')
+			_tag=$(curl -fsSL -o /dev/null -w '%{url_effective}' "https://github.com/${_repo}/releases/latest" 2>/dev/null | sed -e 's|.*/releases/tag/||' -e 's|.*/tag/||')
 			[ -z "$_tag" ] && {
 				echo "fetch: Failed to resolve latest tag for ${_repo}" >&2
 				return 1
@@ -70,6 +96,7 @@ fetch_resolve_url() {
 fetch_download() {
 	_url="$1"
 	_output="$2"
+	mkdir -p "$(dirname "$_output")"
 	curl -fsSL -o "$_output" "$_url"
 }
 
