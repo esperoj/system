@@ -119,9 +119,9 @@ review:
 .PHONY: setup-remotes
 
 setup-remotes:
-        @git config --remove-section remote.origin
-        git remote add origin git@github.com:esperoj/system.git
-        git remote set-url --push origin git@github.com:esperoj/system.git
-        git remote set-url --add --push origin git@codefloe.com:esperoj/system.git
-        echo "Remotes configured:"
-        git remote -v
+	@git config --remove-section remote.origin
+	git remote add origin git@github.com:esperoj/system.git
+	git remote set-url --push origin git@github.com:esperoj/system.git
+	git remote set-url --add --push origin git@codefloe.com:esperoj/system.git
+	echo "Remotes configured:"
+	git remote -v
