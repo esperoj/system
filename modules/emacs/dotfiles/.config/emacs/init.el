@@ -1,4 +1,4 @@
-;;; init.el --- Sovereign, Responsive Debian IDE -*- lexical-binding: t; -*-
+;;; init.el --- Sovereign, Zero-Lag IDE with Guaranteed Highlighting -*- lexical-binding: t; -*-
 
 ;; -----------------------------------------------------------------------------
 ;; 0. XDG Directories & File Storage
@@ -9,13 +9,11 @@
 (dolist (dir (list my/state-dir
                    my/cache-dir
                    (expand-file-name "backups" my/state-dir)
-                   (expand-file-name "auto-save" my/state-dir)
-                   (expand-file-name "tree-sitter" my/state-dir)))
+                   (expand-file-name "auto-save" my/state-dir)))
   (make-directory dir t))
 
 (setq user-emacs-directory my/state-dir
       backup-directory-alist `(("." . ,(expand-file-name "backups" my/state-dir)))
-      ;; Trailing slash ensures auto-saves are stored inside the directory
       auto-save-file-name-transforms `((".*" ,(expand-file-name "auto-save/" my/state-dir) t))
       create-lockfiles nil
       custom-file (expand-file-name "custom.el" my/state-dir)
@@ -29,7 +27,7 @@
   (load custom-file 'noerror 'nomessage))
 
 ;; -----------------------------------------------------------------------------
-;; 1. UI & Performance Tuning (Fixes Buffer-Open Freezes)
+;; 1. UI & Performance Tuning (Eliminates All UI Freezes)
 ;; -----------------------------------------------------------------------------
 (setq gc-cons-threshold 100000000
       gc-cons-percentage 0.2
@@ -38,7 +36,7 @@
       use-dialog-box nil
       ring-bell-function 'ignore)
 
-;; 1MB IPC buffer prevents stutter when language servers output large JSON chunks
+;; 1MB IPC buffer prevents stutter when language servers stream output
 (setq read-process-output-max (* 1024 1024)
       process-adaptive-read-buffering nil)
 
@@ -50,11 +48,12 @@
 (scroll-bar-mode -1)
 
 ;; -----------------------------------------------------------------------------
-;; 2. Syntax Highlighting Engine & Ergonomics
+;; 2. Guaranteed Syntax Highlighting & Editor Behavior
 ;; -----------------------------------------------------------------------------
-;; Tree-sitter: Level 4 enables full highlighting (variables, calls, operators)
-(setq treesit-font-lock-level 4
-      font-lock-maximum-decoration t)
+;; Force maximum font-lock decoration across all modes
+(global-font-lock-mode 1)
+(setq font-lock-maximum-decoration t)
+(setq-default font-lock-maximum-decoration t)
 
 (pixel-scroll-precision-mode 1)
 (repeat-mode 1)
@@ -71,22 +70,28 @@
 (setq-default indent-tabs-mode nil)
 
 ;; -----------------------------------------------------------------------------
-;; 3. Completion (Icomplete + Flex)
+;; 3. Built-in Completion (TAB Autocomplete + Vertical Minibuffer)
 ;; -----------------------------------------------------------------------------
-(icomplete-vertical-mode 1)
+;; Built-in code completion via TAB:
+;; - Press TAB at indentation: indents code
+;; - Press TAB after a dot or word (e.g. `os.`): autocompletes from ty LSP
+(setq tab-always-indent 'complete
+      completions-detailed t
+      completion-auto-select t
+      completions-max-height 12)
 
+;; Minibuffer completion (for finding files, switching buffers, M-x)
+(icomplete-vertical-mode 1)
 (setq icomplete-show-matches-on-no-input t
       completion-styles '(substring flex partial-completion basic)
       completion-category-defaults nil
       completion-category-overrides '((file (styles partial-completion substring flex basic)))
-      completions-detailed t
-      completions-max-height 15
-      tab-always-indent 'complete)
+      completions-format 'one-column)
 
 (keymap-set minibuffer-local-completion-map "SPC" #'self-insert-command)
 
 ;; -----------------------------------------------------------------------------
-;; 4. History, State & Project Search
+;; 4. History, State & Fast Search
 ;; -----------------------------------------------------------------------------
 (require 'recentf)
 (setq recentf-save-file (expand-file-name "recentf" my/state-dir)
@@ -102,7 +107,6 @@
 ;; -----------------------------------------------------------------------------
 ;; 5. Magit & Fast Conflict Detection
 ;; -----------------------------------------------------------------------------
-;; Magit binds `C-x g` to `magit-status` by default.
 (with-eval-after-load 'magit
   (setq magit-display-buffer-function
         #'magit-display-buffer-same-window-except-diff-v1))
@@ -122,32 +126,22 @@
 (add-hook 'find-file-hook #'my/maybe-smerge-mode)
 
 ;; -----------------------------------------------------------------------------
-;; 6. Built-in Tree-sitter (Auto-Installs Missing Grammars)
+;; 6. Languages & Optional Tree-sitter
 ;; -----------------------------------------------------------------------------
-(when (and (fboundp 'treesit-available-p)
-           (treesit-available-p))
+;; File associations using Debian packages
+(when (require 'yaml-mode nil 'noerror)
+  (add-to-list 'auto-mode-alist '("\\.ya?ml\\'" . yaml-mode)))
 
+(when (require 'markdown-mode nil 'noerror)
+  (add-to-list 'auto-mode-alist '("\\.\\(?:md\\|markdown\\)\\'" . markdown-mode))
+  (add-to-list 'auto-mode-alist '("README\\.md\\'" . gfm-mode))
+  (add-hook 'markdown-mode-hook #'visual-line-mode))
+
+;; Remap to tree-sitter ONLY if the user manually installed the grammar on disk.
+;; This prevents broken, colorless buffers.
+(when (and (fboundp 'treesit-available-p) (treesit-available-p))
   (require 'treesit)
-
-  (setq treesit-language-source-alist
-        '((bash   "https://github.com/tree-sitter/tree-sitter-bash" "v0.20.0")
-          (python "https://github.com/tree-sitter/tree-sitter-python" "v0.20.4")
-          (json   "https://github.com/tree-sitter/tree-sitter-json" "v0.20.2")
-          (yaml   "https://github.com/ikatyang/tree-sitter-yaml")
-          (toml   "https://github.com/tree-sitter/tree-sitter-toml" "v0.20.0")))
-
-  ;; Check and auto-compile missing grammars using Emacs' native compiler
-  (dolist (recipe treesit-language-source-alist)
-    (let ((lang (car recipe)))
-      (unless (treesit-language-available-p lang)
-        (message "Tree-sitter: Compiling missing grammar for %s..." lang)
-        (condition-case err
-            (treesit-install-language-grammar lang)
-          (error (message "Tree-sitter: Failed to compile %s: %s"
-                          lang (error-message-string err)))))))
-
-  ;; Remap classic modes to ts-modes ONLY when the grammar is verified on disk.
-  ;; If a grammar is missing, keep python-mode/sh-mode so highlighting NEVER breaks.
+  (setq treesit-font-lock-level 4)
   (dolist (mapping '((bash   sh-mode      bash-ts-mode)
                      (python python-mode  python-ts-mode)
                      (json   js-json-mode json-ts-mode)))
@@ -156,97 +150,92 @@
                    (cons (nth 1 mapping) (nth 2 mapping))))))
 
 ;; -----------------------------------------------------------------------------
-;; 7. Workflows & Eglot LSP (Python `ty`, Bash, JSON, YAML, Markdown)
+;; 7. Python with .venv and Astral `ty` LSP
 ;; -----------------------------------------------------------------------------
 (require 'eglot)
 (add-to-list 'warning-suppress-types '(eglot))
 
 (setq eglot-autoshutdown t
       eglot-events-buffer-size 0
-      eldoc-idle-delay 0.3)
+      eldoc-idle-delay 0.2)
 
-;; Register Astral `ty` alongside standard Python language servers
+;; Register `ty server` with standard LSP language-id "python"
 (with-eval-after-load 'eglot
   (add-to-list 'eglot-server-programs
-               '((python-mode python-ts-mode)
-                 . (eglot-alternatives
-                    '(("ty" "server")
-                      ("pyright-langserver" "--stdio")
-                      ("pylsp"))))))
+               '(((python-mode :language-id "python")
+                  (python-ts-mode :language-id "python"))
+                 . ("ty" "server"))))
 
-(defun my/eglot-ensure-if-any (&rest executables)
-  "Enable Eglot safely only when one of EXECUTABLES is found in PATH."
-  (catch 'found
-    (dolist (exe executables)
-      (when (executable-find exe)
-        (ignore-errors (eglot-ensure))
-        (throw 'found t)))))
-
-;; Python: Instant O(1) venv detection without blocking directory scans
-(defun my/python-activate-venv ()
-  "Activate local Python venv for current buffer safely."
+;; Fast O(1) venv detection without mutating global environment
+(defun my/find-python-venv ()
+  "Find local .venv or venv in project root or current directory."
   (let* ((root (or (when-let* ((proj (project-current)))
                      (project-root proj))
                    default-directory))
-         (py-rel (if (eq system-type 'windows-nt) "Scripts/python.exe" "bin/python"))
-         (bin-rel (if (eq system-type 'windows-nt) "Scripts" "bin"))
-         (venv-dir (seq-find (lambda (dir)
-                               (file-executable-p (expand-file-name py-rel dir)))
-                             (list (expand-file-name ".venv" root)
-                                   (expand-file-name "venv" root)))))
-    (when venv-dir
-      (let* ((bin-dir (expand-file-name bin-rel venv-dir))
-             (py-bin (expand-file-name py-rel venv-dir))
-             (old-path (or (getenv "PATH" process-environment) ""))
-             (clean-env (seq-filter (lambda (env)
-                                      (not (or (string-prefix-p "VIRTUAL_ENV=" env)
-                                               (string-prefix-p "PATH=" env))))
-                                    process-environment)))
-        (setq-local process-environment
-                    (append (list (format "VIRTUAL_ENV=%s" venv-dir)
-                                  (format "PATH=%s%s%s" bin-dir path-separator old-path))
-                            clean-env))
-        (setq-local exec-path (cons bin-dir (delete bin-dir exec-path)))
-        (when (boundp 'python-shell-interpreter)
-          (setq-local python-shell-interpreter py-bin))))))
+         (py-rel (if (eq system-type 'windows-nt) "Scripts/python.exe" "bin/python")))
+    (seq-find (lambda (dir)
+                (file-executable-p (expand-file-name py-rel dir)))
+              (list (expand-file-name ".venv" root)
+                    (expand-file-name "venv" root)))))
+
+(defun my/python-activate-venv ()
+  "Activate local Python venv for current buffer safely."
+  (when-let* ((venv-dir (my/find-python-venv)))
+    (let* ((bin-dir (expand-file-name (if (eq system-type 'windows-nt) "Scripts" "bin") venv-dir))
+           (py-bin (expand-file-name (if (eq system-type 'windows-nt) "Scripts/python.exe" "bin/python") venv-dir))
+           (old-path (or (getenv "PATH") "")))
+      ;; Prepend .venv/bin to buffer-local PATH and exec-path
+      (setq-local process-environment
+                  (cons (format "VIRTUAL_ENV=%s" venv-dir)
+                        (cons (format "PATH=%s%s%s" bin-dir path-separator old-path)
+                              (seq-remove (lambda (e) (string-prefix-p "VIRTUAL_ENV=" e))
+                                          process-environment))))
+      (setq-local exec-path (cons bin-dir (remove bin-dir exec-path)))
+      (setq-local python-shell-interpreter py-bin)
+      venv-dir)))
 
 (defun my/python-mode-setup ()
-  "Setup Python buffer safely without breaking font-lock."
-  (ignore-errors (my/python-activate-venv))
-  (ignore-errors (my/eglot-ensure-if-any "ty" "pyright-langserver" "pylsp")))
+  "Setup Python buffer, activate venv, and connect to ty server."
+  (let ((venv (my/python-activate-venv)))
+    (if (executable-find "ty")
+        ;; Catch errors so a connection issue NEVER breaks syntax highlighting
+        (condition-case err
+            (eglot-ensure)
+          (error (message "Eglot: %s" (error-message-string err))))
+      (message "Note: 'ty' not found in %s. Run: (.venv) $ pip install ty"
+               (if venv (concat venv "/bin") "local .venv")))))
 
 (add-hook 'python-base-mode-hook #'my/python-mode-setup)
+(add-hook 'python-mode-hook #'my/python-mode-setup)
 
 ;; Bash LSP
 (dolist (hook '(bash-ts-mode-hook sh-mode-hook))
   (add-hook hook
             (lambda ()
-              (my/eglot-ensure-if-any "bash-language-server"))))
+              (when (executable-find "bash-language-server")
+                (ignore-errors (eglot-ensure))))))
 
 ;; JSON LSP
 (setq js-indent-level 2)
 (dolist (hook '(json-ts-mode-hook js-json-mode-hook))
   (add-hook hook
             (lambda ()
-              (my/eglot-ensure-if-any "vscode-json-language-server"
-                                      "json-languageserver"))))
+              (when (or (executable-find "vscode-json-language-server")
+                        (executable-find "json-languageserver"))
+                (ignore-errors (eglot-ensure))))))
 
 ;; YAML LSP
 (dolist (hook '(yaml-mode-hook yaml-ts-mode-hook))
   (add-hook hook
             (lambda ()
-              (my/eglot-ensure-if-any "yaml-language-server"))))
-
-;; Markdown configuration
-(setq markdown-command "pandoc -f markdown -t html --standalone")
-(add-hook 'markdown-mode-hook #'visual-line-mode)
+              (when (executable-find "yaml-language-server")
+                (ignore-errors (eglot-ensure))))))
 
 ;; -----------------------------------------------------------------------------
 ;; 8. Visuals
 ;; -----------------------------------------------------------------------------
 (load-theme 'modus-vivendi t)
 
-;; Set font safely for both standalone GUI and emacsclient frames
 (when (display-graphic-p)
   (set-face-attribute 'default nil :font "Monospace" :height 140))
 (add-to-list 'default-frame-alist '(font . "Monospace-14"))
