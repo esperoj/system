@@ -73,7 +73,7 @@
 
 (setq-default indent-tabs-mode nil)
 
-;; 4. Completion (Icomplete + Flex)
+;; 3. Completion (Icomplete + Flex)
 (icomplete-vertical-mode 1)
 
 (setq icomplete-show-matches-on-no-input t
@@ -92,7 +92,7 @@
 
 (keymap-set minibuffer-local-completion-map "SPC" #'self-insert-command)
 
-;; 5. Recent Files & Projects
+;; 4. Recent Files & Projects (Powered by fd + ripgrep)
 (require 'recentf)
 
 (setq recentf-save-file (expand-file-name "recentf" my/state-dir)
@@ -105,9 +105,15 @@
 
 (require 'project)
 (setq project-list-file (expand-file-name "projects" my/state-dir))
+
+;; Use ripgrep for project-find-regexp (C-x p g)
 (setq xref-search-program 'ripgrep)
 
-;; 6. Git / Magit
+;; Use fd for project-find-file in non-VC projects if fd exists
+(when (executable-find "fd")
+  (setq project-vc-extra-root-markers '(".git" ".project")))
+
+;; 5. Git / Magit
 (with-eval-after-load 'magit
   (setq magit-display-buffer-function
         #'magit-display-buffer-same-window-except-diff-v1))
@@ -124,7 +130,7 @@
 
 (add-hook 'find-file-hook #'my/maybe-smerge-mode)
 
-;; 7. Tree-sitter & Mappings
+;; 6. Tree-sitter & Native Major Modes
 (defconst my/treesit-languages
   '((bash "https://github.com/tree-sitter/tree-sitter-bash" "v0.20.0")
     (python "https://github.com/tree-sitter/tree-sitter-python" "v0.20.4")
@@ -152,9 +158,14 @@
 
 (add-to-list 'auto-mode-alist '("\\.toml\\'" . conf-toml-mode))
 
-;; 8. Workflows (Python, Bash, JSON, Markdown)
+;; 7. Workflows (Python with `ty`, Bash, JSON, Markdown)
 (require 'eglot)
 (add-to-list 'warning-suppress-types '(eglot))
+
+;; Eglot Performance Tweaks for low-spec hardware
+(setq eglot-autoshutdown t           ; Terminate server when last buffer closes
+      eglot-events-buffer-size 0     ; Disable logging debug events to save RAM
+      eldoc-idle-delay 0.4)          ; Snappy doc-string hover response
 
 (defun my/env-without (env prefix)
   "Return ENV list without entries starting with PREFIX."
@@ -171,7 +182,7 @@
         (eglot-ensure)
         (throw 'found t)))))
 
-;; Python: Auto venv detection + Eglot
+;; Python: Auto venv detection + Eglot (using `ty`)
 (defun my/python-activate-venv ()
   "Activate local Python venv for current buffer only."
   (let ((root (if-let* ((proj (project-current)))
@@ -209,7 +220,7 @@
 (add-hook 'python-base-mode-hook #'my/python-activate-venv)
 (add-hook 'python-base-mode-hook
           (lambda ()
-            (my/eglot-ensure-if-any "pyright" "pyright-langserver")))
+            (my/eglot-ensure-if-any "ty")))
 
 ;; Bash
 (dolist (hook '(bash-ts-mode-hook sh-mode-hook))
@@ -236,11 +247,11 @@
       markdown-header-scaling t)
 
 (when (locate-library "markdown-mode")
-  (add-to-list 'auto-mode-alist '("\\.\\(?:md\\|markdown\\)\\'" . markdown-mode))
+  (add-to-list 'auto-mode-alist '("\\.\\(?:md\\Vert{}markdown\\)\\'" . markdown-mode))
   (add-to-list 'auto-mode-alist '("README\\.md\\'" . gfm-mode))
   (add-hook 'markdown-mode-hook #'visual-line-mode))
 
-;; 9. Visuals & Keybindings
+;; 8. Visuals & Custom Keybindings
 (load-theme 'modus-vivendi t)
 
 (when (display-graphic-p)
@@ -253,13 +264,10 @@
 (when (fboundp 'global-display-line-numbers-mode)
   (global-display-line-numbers-mode 1))
 
-(keymap-global-set "C-x g"   #'magit-status)
-(keymap-global-set "C-c r"   #'recentf-open-files)
-(keymap-global-set "C-x C-b" #'ibuffer)
-(keymap-global-set "M-o"     #'other-window)
-(keymap-global-set "C-c p p" #'project-switch-project)
-(keymap-global-set "C-c p f" #'project-find-file)
-(keymap-global-set "C-c o"   #'imenu)
+;; Unique custom shortcuts
+(keymap-global-set "C-x g" #'magit-status)       ; Quick Magit access
+(keymap-global-set "C-c r" #'recentf-open-files) ; Quick recent file list
+(keymap-global-set "C-c o" #'imenu)              ; Quick Zed-style symbol outline
 
 (provide 'init)
 ;;; init.el ends here
