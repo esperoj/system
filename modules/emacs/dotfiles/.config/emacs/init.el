@@ -1,39 +1,25 @@
-;;; init.el --- Sovereign, Portable IDE for Perma Projects -*- lexical-binding: t; -*-
+;;; init.el --- Sovereign, Responsive Debian IDE -*- lexical-binding: t; -*-
 
-;; Forward declarations
-(defvar tramp-persistency-file-name)
-(defvar url-configuration-directory)
-(defvar treesit-language-source-alist)
-(defvar major-mode-remap-alist)
-(defvar icomplete-show-matches-on-no-input)
-(defvar icomplete-hide-common-prefix)
-(defvar savehist-file)
-(defvar markdown-command)
-
-;; 0. XDG Directories
-(defconst xdg-state-home (or (getenv "XDG_STATE_HOME") "~/.local/state"))
-(defconst xdg-cache-home (or (getenv "XDG_CACHE_HOME") "~/.cache"))
-(defconst xdg-data-home  (or (getenv "XDG_DATA_HOME")  "~/.local/share"))
-
-(defconst my/state-dir (expand-file-name "emacs/" xdg-state-home))
-(defconst my/cache-dir (expand-file-name "emacs/" xdg-cache-home))
-(defconst my/data-dir  (expand-file-name "emacs/" xdg-data-home))
+;; -----------------------------------------------------------------------------
+;; 0. XDG Directories & File Storage
+;; -----------------------------------------------------------------------------
+(defconst my/state-dir (expand-file-name "emacs/" (or (getenv "XDG_STATE_HOME") "~/.local/state")))
+(defconst my/cache-dir (expand-file-name "emacs/" (or (getenv "XDG_CACHE_HOME") "~/.cache")))
 
 (dolist (dir (list my/state-dir
                    my/cache-dir
-                   my/data-dir
                    (expand-file-name "backups" my/state-dir)
-                   (expand-file-name "auto-save" my/state-dir)))
+                   (expand-file-name "auto-save" my/state-dir)
+                   (expand-file-name "tree-sitter" my/state-dir)))
   (make-directory dir t))
 
 (setq user-emacs-directory my/state-dir
-      package-user-dir (expand-file-name "elpa" my/state-dir)
       backup-directory-alist `(("." . ,(expand-file-name "backups" my/state-dir)))
-      auto-save-file-name-transforms `((".*" ,(expand-file-name "auto-save" my/state-dir) t))
+      ;; Trailing slash ensures auto-saves are stored inside the directory
+      auto-save-file-name-transforms `((".*" ,(expand-file-name "auto-save/" my/state-dir) t))
       create-lockfiles nil
       custom-file (expand-file-name "custom.el" my/state-dir)
-      tramp-persistency-file-name (expand-file-name "tramp" my/cache-dir)
-      url-configuration-directory (expand-file-name "url/" my/cache-dir))
+      tramp-persistency-file-name (expand-file-name "tramp" my/cache-dir))
 
 (when (boundp 'native-comp-eln-load-path)
   (add-to-list 'native-comp-eln-load-path
@@ -42,232 +28,232 @@
 (when (file-exists-p custom-file)
   (load custom-file 'noerror 'nomessage))
 
-;; 1. UI & Performance
+;; -----------------------------------------------------------------------------
+;; 1. UI & Performance Tuning (Fixes Buffer-Open Freezes)
+;; -----------------------------------------------------------------------------
 (setq gc-cons-threshold 100000000
+      gc-cons-percentage 0.2
       inhibit-startup-screen t
-      inhibit-startup-message t
       initial-scratch-message nil
       use-dialog-box nil
       ring-bell-function 'ignore)
 
+;; 1MB IPC buffer prevents stutter when language servers output large JSON chunks
+(setq read-process-output-max (* 1024 1024)
+      process-adaptive-read-buffering nil)
+
 (add-hook 'emacs-startup-hook
-          (lambda () (setq gc-cons-threshold 20000000))) ;; 20MB minimum to prevent Eglot LSP stutter
+          (lambda () (setq gc-cons-threshold 67108864)))
 
 (menu-bar-mode -1)
 (tool-bar-mode -1)
 (scroll-bar-mode -1)
 
-;; 2. Built-in Ergonomics
-(when (fboundp 'pixel-scroll-precision-mode)
-  (pixel-scroll-precision-mode 1))
+;; -----------------------------------------------------------------------------
+;; 2. Syntax Highlighting Engine & Ergonomics
+;; -----------------------------------------------------------------------------
+;; Tree-sitter: Level 4 enables full highlighting (variables, calls, operators)
+(setq treesit-font-lock-level 4
+      font-lock-maximum-decoration t)
 
-(global-auto-revert-mode 1)
+(pixel-scroll-precision-mode 1)
+(repeat-mode 1)
 (save-place-mode 1)
-(savehist-mode 1)
 (winner-mode 1)
 (electric-pair-mode 1)
 (delete-selection-mode 1)
 
-(when (fboundp 'repeat-mode)
-  (repeat-mode 1))
+;; Prevent background git queries from freezing the UI
+(setq auto-revert-avoid-polling t
+      auto-revert-check-vc-info nil)
+(global-auto-revert-mode 1)
 
 (setq-default indent-tabs-mode nil)
 
+;; -----------------------------------------------------------------------------
 ;; 3. Completion (Icomplete + Flex)
+;; -----------------------------------------------------------------------------
 (icomplete-vertical-mode 1)
 
 (setq icomplete-show-matches-on-no-input t
-      icomplete-hide-common-prefix nil)
-
-(setq completion-styles '(substring flex partial-completion basic)
+      completion-styles '(substring flex partial-completion basic)
       completion-category-defaults nil
-      completion-category-overrides '((file (styles partial-completion substring flex basic))))
-
-(setq completions-detailed t
-      completions-format 'one-column
+      completion-category-overrides '((file (styles partial-completion substring flex basic)))
+      completions-detailed t
       completions-max-height 15
-      completion-cycle-threshold 3
-      tab-always-indent 'complete
-      completion-auto-select 'second-tab)
+      tab-always-indent 'complete)
 
 (keymap-set minibuffer-local-completion-map "SPC" #'self-insert-command)
 
-;; 4. Recent Files & Projects (Powered by fd + ripgrep)
+;; -----------------------------------------------------------------------------
+;; 4. History, State & Project Search
+;; -----------------------------------------------------------------------------
 (require 'recentf)
-
 (setq recentf-save-file (expand-file-name "recentf" my/state-dir)
       recentf-max-saved-items 200)
-
 (recentf-mode 1)
 
 (setq savehist-file (expand-file-name "history" my/state-dir))
 (savehist-mode 1)
 
-(require 'project)
-(setq project-list-file (expand-file-name "projects" my/state-dir))
+(when (executable-find "rg")
+  (setq xref-search-program 'ripgrep))
 
-;; Use ripgrep for project-find-regexp (C-x p g)
-(setq xref-search-program 'ripgrep)
-
-;; Use fd for project-find-file in non-VC projects if fd exists
-(when (executable-find "fd")
-  (setq project-vc-extra-root-markers '(".git" ".project")))
-
-;; 5. Git / Magit
+;; -----------------------------------------------------------------------------
+;; 5. Magit & Fast Conflict Detection
+;; -----------------------------------------------------------------------------
+;; Magit binds `C-x g` to `magit-status` by default.
 (with-eval-after-load 'magit
   (setq magit-display-buffer-function
         #'magit-display-buffer-same-window-except-diff-v1))
 
 (defun my/maybe-smerge-mode ()
-  "Enable `smerge-mode' only for likely conflict files."
+  "Enable `smerge-mode' cheaply without scanning large non-VC buffers."
   (when (and buffer-file-name
+             vc-mode
              (not (file-remote-p buffer-file-name))
-             (< (buffer-size) 2000000))
+             (< (buffer-size) 1000000))
     (save-excursion
-      (goto-char (point-min))
-      (when (re-search-forward "^<<<<<<< " nil t)
-        (smerge-mode 1)))))
+      (save-match-data
+        (goto-char (point-min))
+        (when (re-search-forward "^<<<<<<< " 65536 t)
+          (smerge-mode 1))))))
 
 (add-hook 'find-file-hook #'my/maybe-smerge-mode)
 
-;; 6. Tree-sitter & Native Major Modes
-(defconst my/treesit-languages
-  '((bash "https://github.com/tree-sitter/tree-sitter-bash" "v0.20.0")
-    (python "https://github.com/tree-sitter/tree-sitter-python" "v0.20.4")
-    (json "https://github.com/tree-sitter/tree-sitter-json" "v0.20.2")
-    (yaml "https://github.com/ikatyang/tree-sitter-yaml")
-    (toml "https://github.com/tree-sitter/tree-sitter-toml" "v0.20.0")))
-
+;; -----------------------------------------------------------------------------
+;; 6. Built-in Tree-sitter (Auto-Installs Missing Grammars)
+;; -----------------------------------------------------------------------------
 (when (and (fboundp 'treesit-available-p)
            (treesit-available-p))
-  (if (require 'treesit-auto nil 'noerror)
-      (global-treesit-auto-mode 1)
-    (setq treesit-language-source-alist my/treesit-languages)
 
-    (dolist (mapping '((bash . sh-mode)
-                       (python . python-mode)
-                       (json . js-json-mode)
-                       (yaml . yaml-mode)))
-      (when (treesit-language-available-p (car mapping))
-        (add-to-list 'major-mode-remap-alist
-                     (cons (cdr mapping)
-                           (intern (format "%s-ts-mode" (car mapping)))))))))
+  (require 'treesit)
 
-(when (locate-library "yaml-mode")
-  (add-to-list 'auto-mode-alist '("\\.ya?ml\\'" . yaml-mode)))
+  (setq treesit-language-source-alist
+        '((bash   "https://github.com/tree-sitter/tree-sitter-bash" "v0.20.0")
+          (python "https://github.com/tree-sitter/tree-sitter-python" "v0.20.4")
+          (json   "https://github.com/tree-sitter/tree-sitter-json" "v0.20.2")
+          (yaml   "https://github.com/ikatyang/tree-sitter-yaml")
+          (toml   "https://github.com/tree-sitter/tree-sitter-toml" "v0.20.0")))
 
-(add-to-list 'auto-mode-alist '("\\.toml\\'" . conf-toml-mode))
+  ;; Check and auto-compile missing grammars using Emacs' native compiler
+  (dolist (recipe treesit-language-source-alist)
+    (let ((lang (car recipe)))
+      (unless (treesit-language-available-p lang)
+        (message "Tree-sitter: Compiling missing grammar for %s..." lang)
+        (condition-case err
+            (treesit-install-language-grammar lang)
+          (error (message "Tree-sitter: Failed to compile %s: %s"
+                          lang (error-message-string err)))))))
 
-;; 7. Workflows (Python with `ty`, Bash, JSON, Markdown)
+  ;; Remap classic modes to ts-modes ONLY when the grammar is verified on disk.
+  ;; If a grammar is missing, keep python-mode/sh-mode so highlighting NEVER breaks.
+  (dolist (mapping '((bash   sh-mode      bash-ts-mode)
+                     (python python-mode  python-ts-mode)
+                     (json   js-json-mode json-ts-mode)))
+    (when (treesit-language-available-p (nth 0 mapping))
+      (add-to-list 'major-mode-remap-alist
+                   (cons (nth 1 mapping) (nth 2 mapping))))))
+
+;; -----------------------------------------------------------------------------
+;; 7. Workflows & Eglot LSP (Python `ty`, Bash, JSON, YAML, Markdown)
+;; -----------------------------------------------------------------------------
 (require 'eglot)
 (add-to-list 'warning-suppress-types '(eglot))
 
-;; Eglot Performance Tweaks for low-spec hardware
-(setq eglot-autoshutdown t           ; Terminate server when last buffer closes
-      eglot-events-buffer-size 0     ; Disable logging debug events to save RAM
-      eldoc-idle-delay 0.4)          ; Snappy doc-string hover response
+(setq eglot-autoshutdown t
+      eglot-events-buffer-size 0
+      eldoc-idle-delay 0.3)
 
-(defun my/env-without (env prefix)
-  "Return ENV list without entries starting with PREFIX."
-  (let ((result '()))
-    (dolist (entry env (nreverse result))
-      (unless (string-prefix-p prefix entry)
-        (push entry result)))))
+;; Register Astral `ty` alongside standard Python language servers
+(with-eval-after-load 'eglot
+  (add-to-list 'eglot-server-programs
+               '((python-mode python-ts-mode)
+                 . (eglot-alternatives
+                    '(("ty" "server")
+                      ("pyright-langserver" "--stdio")
+                      ("pylsp"))))))
 
 (defun my/eglot-ensure-if-any (&rest executables)
-  "Enable Eglot only when at least one EXECUTABLES exists."
+  "Enable Eglot safely only when one of EXECUTABLES is found in PATH."
   (catch 'found
     (dolist (exe executables)
       (when (executable-find exe)
-        (eglot-ensure)
+        (ignore-errors (eglot-ensure))
         (throw 'found t)))))
 
-;; Python: Auto venv detection + Eglot (using `ty`)
+;; Python: Instant O(1) venv detection without blocking directory scans
 (defun my/python-activate-venv ()
-  "Activate local Python venv for current buffer only."
-  (let ((root (if-let* ((proj (project-current)))
-                  (project-root proj)
-                default-directory)))
-    (when-let* ((venv-dir (car (directory-files root t "^\\.?venv$" t)))
-                (bin-dir (expand-file-name "bin" venv-dir))
-                (python-bin (expand-file-name "python" bin-dir)))
-      (when (file-executable-p python-bin)
-        (let* ((old-path (or (getenv "PATH" process-environment) ""))
-               (clean-env (my/env-without
-                           (my/env-without process-environment "VIRTUAL_ENV=")
-                           "PATH=")))
-          (setq-local process-environment
-                      (append
-                       (list
-                        (format "VIRTUAL_ENV=%s" venv-dir)
-                        (format "PATH=%s%s%s"
-                                bin-dir
-                                path-separator
-                                old-path))
-                       clean-env))
+  "Activate local Python venv for current buffer safely."
+  (let* ((root (or (when-let* ((proj (project-current)))
+                     (project-root proj))
+                   default-directory))
+         (py-rel (if (eq system-type 'windows-nt) "Scripts/python.exe" "bin/python"))
+         (bin-rel (if (eq system-type 'windows-nt) "Scripts" "bin"))
+         (venv-dir (seq-find (lambda (dir)
+                               (file-executable-p (expand-file-name py-rel dir)))
+                             (list (expand-file-name ".venv" root)
+                                   (expand-file-name "venv" root)))))
+    (when venv-dir
+      (let* ((bin-dir (expand-file-name bin-rel venv-dir))
+             (py-bin (expand-file-name py-rel venv-dir))
+             (old-path (or (getenv "PATH" process-environment) ""))
+             (clean-env (seq-filter (lambda (env)
+                                      (not (or (string-prefix-p "VIRTUAL_ENV=" env)
+                                               (string-prefix-p "PATH=" env))))
+                                    process-environment)))
+        (setq-local process-environment
+                    (append (list (format "VIRTUAL_ENV=%s" venv-dir)
+                                  (format "PATH=%s%s%s" bin-dir path-separator old-path))
+                            clean-env))
+        (setq-local exec-path (cons bin-dir (delete bin-dir exec-path)))
+        (when (boundp 'python-shell-interpreter)
+          (setq-local python-shell-interpreter py-bin))))))
 
-          (setq-local exec-path
-                      (cons bin-dir
-                            (seq-filter
-                             (lambda (p) (not (equal p bin-dir)))
-                             exec-path)))
+(defun my/python-mode-setup ()
+  "Setup Python buffer safely without breaking font-lock."
+  (ignore-errors (my/python-activate-venv))
+  (ignore-errors (my/eglot-ensure-if-any "ty" "pyright-langserver" "pylsp")))
 
-          (when (boundp 'python-shell-interpreter)
-            (setq-local python-shell-interpreter python-bin))
+(add-hook 'python-base-mode-hook #'my/python-mode-setup)
 
-          (message "Activated venv: %s" venv-dir))))))
-
-(add-hook 'python-base-mode-hook #'my/python-activate-venv)
-(add-hook 'python-base-mode-hook
-          (lambda ()
-            (my/eglot-ensure-if-any "ty")))
-
-;; Bash
+;; Bash LSP
 (dolist (hook '(bash-ts-mode-hook sh-mode-hook))
   (add-hook hook
             (lambda ()
               (my/eglot-ensure-if-any "bash-language-server"))))
 
-;; JSON
+;; JSON LSP
+(setq js-indent-level 2)
 (dolist (hook '(json-ts-mode-hook js-json-mode-hook))
   (add-hook hook
             (lambda ()
               (my/eglot-ensure-if-any "vscode-json-language-server"
                                       "json-languageserver"))))
 
-;; YAML
-(add-hook 'yaml-mode-hook
-          (lambda ()
-            (my/eglot-ensure-if-any "yaml-language-server")))
+;; YAML LSP
+(dolist (hook '(yaml-mode-hook yaml-ts-mode-hook))
+  (add-hook hook
+            (lambda ()
+              (my/eglot-ensure-if-any "yaml-language-server"))))
 
-(setq js-indent-level 2)
+;; Markdown configuration
+(setq markdown-command "pandoc -f markdown -t html --standalone")
+(add-hook 'markdown-mode-hook #'visual-line-mode)
 
-;; Markdown
-(setq markdown-command "pandoc -f markdown -t html --standalone"
-      markdown-header-scaling t)
-
-(when (locate-library "markdown-mode")
-  (add-to-list 'auto-mode-alist '("\\.\\(?:md\\Vert{}markdown\\)\\'" . markdown-mode))
-  (add-to-list 'auto-mode-alist '("README\\.md\\'" . gfm-mode))
-  (add-hook 'markdown-mode-hook #'visual-line-mode))
-
-;; 8. Visuals & Custom Keybindings
+;; -----------------------------------------------------------------------------
+;; 8. Visuals
+;; -----------------------------------------------------------------------------
 (load-theme 'modus-vivendi t)
 
+;; Set font safely for both standalone GUI and emacsclient frames
 (when (display-graphic-p)
   (set-face-attribute 'default nil :font "Monospace" :height 140))
+(add-to-list 'default-frame-alist '(font . "Monospace-14"))
 
 (setq-default line-spacing 0.15)
-
 (column-number-mode 1)
-
-(when (fboundp 'global-display-line-numbers-mode)
-  (global-display-line-numbers-mode 1))
-
-;; Unique custom shortcuts
-(keymap-global-set "C-x g" #'magit-status)       ; Quick Magit access
-(keymap-global-set "C-c r" #'recentf-open-files) ; Quick recent file list
-(keymap-global-set "C-c o" #'imenu)              ; Quick Zed-style symbol outline
+(global-display-line-numbers-mode 1)
 
 (provide 'init)
 ;;; init.el ends here
