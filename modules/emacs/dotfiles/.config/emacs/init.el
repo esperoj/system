@@ -243,6 +243,28 @@
 (setq-default line-spacing 0.15)
 (column-number-mode 1)
 (global-display-line-numbers-mode 1)
+;; -----------------------------------------------------------------------------
+;; 9. Pragmatic Ergonomic Keybindings
+;; -----------------------------------------------------------------------------
+;; Git: Launch Magit status
+(keymap-global-set "C-x g" #'magit-status)
 
+;; Fast Recent Files via built-in completing-read
+(defun my/recentf-open ()
+  "Find recent file using built-in completing-read."
+  (interactive)
+  (find-file (completing-read "Recent file: " recentf-list nil t)))
+(keymap-global-set "C-x C-r" #'my/recentf-open)
+
+
+;; Eglot LSP shortcuts under standard prefix `C-c l`
+(with-eval-after-load 'eglot
+  (keymap-set eglot-mode-map "C-c l r" #'eglot-rename)
+  (keymap-set eglot-mode-map "C-c l a" #'eglot-code-actions)
+  (keymap-set eglot-mode-map "C-c l f" #'eglot-format)
+  (keymap-set eglot-mode-map "C-c l h" #'eldoc))
+
+;; Fast line commenting (built-in since Emacs 25+)
+(keymap-global-set "M-/" #'comment-line)
 (provide 'init)
 ;;; init.el ends here
