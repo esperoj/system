@@ -1,49 +1,20 @@
-;;; init.el --- Sovereign, Zero-Lag IDE -*- lexical-binding: t; -*-
+;;; init.el --- Fast, Smooth & Ergonomic IDE -*- lexical-binding: t; -*-
 
 ;; -----------------------------------------------------------------------------
-;; 0. Permanently Disable Native-Compilation Loops & CPU Thrashing
+;; 1. Standard Modern Memory & Process Tuning (Smooth LSP & No Freezes)
 ;; -----------------------------------------------------------------------------
-;; 1. Disable JIT compilation and deny all files from being queued
-(setq native-comp-jit-compilation nil
-      native-comp-speed -1
-      native-comp-async-report-warnings-errors nil
-      native-comp-warning-on-missing-source nil
-      native-comp-jit-compilation-deny-list '(".*"))
+;; Sane modern threshold: 32MB (prevents GC pauses on every keystroke during LSP)
+(setq gc-cons-threshold (* 32 1024 1024)
+      gc-cons-percentage 0.1)
 
-(when (boundp 'native-comp-deferred-compilation)
-  (setq native-comp-deferred-compilation nil))
-(when (boundp 'native-comp-deferred-compilation-deny-list)
-  (setq native-comp-deferred-compilation-deny-list '(".*")))
+;; Run garbage collection only when idle for 5 seconds
+(run-with-idle-timer 5.0 t #'garbage-collect)
 
-;; 2. Intercept and neutralize async compilation workers directly
-;; This stops background compiling/uncompressing of debian-ispell and system .el.gz files
-(when (fboundp 'native-compile-async)
-  (advice-add #'native-compile-async :override #'ignore))
-(when (fboundp 'comp-run-async-workers)
-  (advice-add #'comp-run-async-workers :override #'ignore))
-
-;; Clean up the log buffer if it was created before init.el ran
-(add-hook 'emacs-startup-hook
-          (lambda ()
-            (when-let* ((buf (get-buffer "*Async-native-compile-log*")))
-              (kill-buffer buf))))
-
-;; -----------------------------------------------------------------------------
-;; 1. Garbage Collection & Process Pipe Tuning (Zero UI Freezes)
-;; -----------------------------------------------------------------------------
-(setq gc-cons-threshold most-positive-fixnum
-      gc-cons-percentage 0.6)
-
-(add-hook 'emacs-startup-hook
-          (lambda ()
-            (setq gc-cons-threshold (* 64 1024 1024)
-                  gc-cons-percentage 0.1)))
-
-;; Read process pipes in 1MB chunks (Emacs default is 4KB; required for smooth LSP)
+;; Read LSP/subprocess pipes in 1MB chunks (standard for Eglot)
 (setq read-process-output-max (* 1024 1024))
 
 ;; -----------------------------------------------------------------------------
-;; 2. System PATH Setup (Ensures ty, uv, ruff are found in GUI Emacs)
+;; 2. System PATH Setup
 ;; -----------------------------------------------------------------------------
 (dolist (dir (list (expand-file-name "~/.local/bin")
                    (expand-file-name "~/.cargo/bin")
@@ -53,9 +24,8 @@
     (setenv "PATH" (concat dir path-separator (getenv "PATH")))))
 
 ;; -----------------------------------------------------------------------------
-;; 3. Natural Default File Locations (No XDG Overrides)
+;; 3. File Locations & Clean Defaults
 ;; -----------------------------------------------------------------------------
-;; Let Emacs manage its own directory (~/.config/emacs or ~/.emacs.d)
 (let ((backup-dir (locate-user-emacs-file "backups/"))
       (autosave-dir (locate-user-emacs-file "auto-save/")))
   (dolist (dir (list backup-dir autosave-dir))
@@ -71,7 +41,7 @@
   (load custom-file 'noerror 'nomessage))
 
 ;; -----------------------------------------------------------------------------
-;; 4. UI Cleaning & Shell Echo Message Silencing
+;; 4. UI Cleaning & Message Silencing
 ;; -----------------------------------------------------------------------------
 (setq inhibit-startup-screen t
       initial-scratch-message nil
@@ -82,9 +52,8 @@
 (tool-bar-mode -1)
 (scroll-bar-mode -1)
 
-;; Silence the verbose "Setting up indent for shell type bash" echo area spam
+;; Silence verbose "Setting up indent for shell type bash" echo area spam
 (defun my/suppress-sh-indent-messages (orig-fun &rest args)
-  "Silence verbose echo messages when sh-script sets up indentation."
   (let ((inhibit-message t)
         (message-log-max nil))
     (apply orig-fun args)))
@@ -94,17 +63,16 @@
   (advice-add 'sh-make-vars-local :around #'my/suppress-sh-indent-messages))
 
 ;; -----------------------------------------------------------------------------
-;; 5. Core Editing Ergonomics
+;; 5. Core Editing Ergonomics & Emacs 30 Built-ins
 ;; -----------------------------------------------------------------------------
 (global-font-lock-mode 1)
-(setq font-lock-maximum-decoration t)
-(setq-default font-lock-maximum-decoration t)
-
 (repeat-mode 1)
 (save-place-mode 1)
 (winner-mode 1)
 (electric-pair-mode 1)
 (delete-selection-mode 1)
+(which-key-mode 1)       ; Built-in in Emacs 30.1
+(editorconfig-mode 1)    ; Built-in in Emacs 30.1
 
 ;; Non-blocking auto-revert
 (setq auto-revert-avoid-polling t
@@ -115,21 +83,22 @@
 (setq-default indent-tabs-mode nil)
 
 ;; -----------------------------------------------------------------------------
-;; 6. Built-in Completion (Vertical Minibuffer + TAB Completion)
+;; 6. Fast Built-in Minibuffer Completion (No Flex Stutter)
 ;; -----------------------------------------------------------------------------
 (setq tab-always-indent 'complete
       completions-detailed t
       completion-auto-select t
-      completions-max-height 12)
+      completions-max-height 12
+      completions-sort 'historical  ; Emacs 30.1
+      icomplete-compute-delay 0.1   ; Short debounce to prevent typing freeze
+      icomplete-show-matches-on-no-input t)
+
+;; Order styles: Fast prefixes first, heavy 'flex' fuzzy matching last
+(setq completion-styles '(basic substring partial-completion flex)
+      completion-category-defaults nil
+      completion-category-overrides '((file (styles basic substring partial-completion))))
 
 (icomplete-vertical-mode 1)
-(setq icomplete-show-matches-on-no-input t
-      completion-styles '(substring flex partial-completion basic)
-      completion-category-defaults nil
-      completion-category-overrides '((file (styles partial-completion substring flex basic)))
-      completions-format 'one-column)
-
-;; Ensure pressing Space inside minibuffer inserts a normal space
 (keymap-set minibuffer-local-completion-map "SPC" #'self-insert-command)
 
 ;; -----------------------------------------------------------------------------
@@ -154,21 +123,20 @@
         #'magit-display-buffer-same-window-except-diff-v1))
 
 (defun my/maybe-smerge-mode ()
-  "Enable `smerge-mode' cheaply without scanning large non-VC buffers."
+  "Enable `smerge-mode' cheaply without regex scanning large files."
   (when (and buffer-file-name
              vc-mode
              (not (file-remote-p buffer-file-name))
-             (< (buffer-size) 1000000))
+             (< (buffer-size) 500000))
     (save-excursion
-      (save-match-data
-        (goto-char (point-min))
-        (when (re-search-forward "^<<<<<<< " 65536 t)
-          (smerge-mode 1))))))
+      (goto-char (point-min))
+      (when (re-search-forward "^<<<<<<< " 10000 t)
+        (smerge-mode 1)))))
 
 (add-hook 'find-file-hook #'my/maybe-smerge-mode)
 
 ;; -----------------------------------------------------------------------------
-;; 9. Languages & Tree-sitter Remapping
+;; 9. Tree-sitter Setup (Optimized Font-Lock Level 3)
 ;; -----------------------------------------------------------------------------
 (when (require 'yaml-mode nil 'noerror)
   (add-to-list 'auto-mode-alist '("\\.ya?ml\\'" . yaml-mode)))
@@ -178,10 +146,24 @@
   (add-to-list 'auto-mode-alist '("README\\.md\\'" . gfm-mode))
   (add-hook 'markdown-mode-hook #'visual-line-mode))
 
-;; Remap major modes to tree-sitter modes only if the grammar is available on disk
 (when (and (fboundp 'treesit-available-p) (treesit-available-p))
   (require 'treesit)
-  (setq treesit-font-lock-level 4)
+  ;; Level 3 provides full syntax colors without the heavy typing latency of level 4
+  (setq treesit-font-lock-level 3)
+
+  (setq treesit-language-source-alist
+        '((bash   "https://github.com/tree-sitter/tree-sitter-bash")
+          (python "https://github.com/tree-sitter/tree-sitter-python")
+          (json   "https://github.com/tree-sitter/tree-sitter-json")))
+
+  (defun my/treesit-install-grammars ()
+    "Install missing configured Tree-sitter grammars."
+    (interactive)
+    (dolist (source treesit-language-source-alist)
+      (let ((lang (car source)))
+        (unless (treesit-language-available-p lang)
+          (treesit-install-language-grammar lang)))))
+
   (dolist (mapping '((bash   sh-mode      bash-ts-mode)
                      (python python-mode  python-ts-mode)
                      (json   js-json-mode json-ts-mode)))
@@ -190,40 +172,23 @@
                    (cons (nth 1 mapping) (nth 2 mapping))))))
 
 ;; -----------------------------------------------------------------------------
-;; 10. Robust Python Project & LSP Integration
+;; 10. Project & Fast Python Venv + Eglot
 ;; -----------------------------------------------------------------------------
-;; Recognize Python projects even without .git (via .venv, pyproject.toml, etc.)
-(defun my/project-try-python (dir)
-  "Locate Python project root for Eglot even outside Git repositories."
-  (when-let* ((root (locate-dominating-file
-                     dir
-                     (lambda (d)
-                       (or (file-directory-p (expand-file-name ".venv" d))
-                           (file-directory-p (expand-file-name "venv" d))
-                           (file-exists-p (expand-file-name "pyproject.toml" d))
-                           (file-exists-p (expand-file-name "setup.py" d))
-                           (file-exists-p (expand-file-name "requirements.txt" d)))))))
-    (cons 'transient root)))
-
+;; Fast built-in project markers (uses Emacs 30 native C/Elisp root detection)
 (with-eval-after-load 'project
-  (add-hook 'project-find-functions #'my/project-try-python 80))
+  (setq project-vc-extra-root-markers '("pyproject.toml" "setup.py" "requirements.txt" ".venv")))
 
-;; Locate Python venv (.venv, venv, or active $VIRTUAL_ENV)
+;; Fast, cached venv search (checks local directory first)
 (defun my/find-python-venv ()
-  "Find local .venv or venv dominating current directory, or from environment."
+  "Find local .venv or active VIRTUAL_ENV without deep filesystem traversal."
   (let ((py-rel (if (eq system-type 'windows-nt) "Scripts/python.exe" "bin/python")))
     (or
-     ;; 1. Check parent directories for .venv or venv
-     (when-let* ((root (locate-dominating-file
-                        default-directory
-                        (lambda (dir)
-                          (or (file-executable-p (expand-file-name (concat ".venv/" py-rel) dir))
-                              (file-executable-p (expand-file-name (concat "venv/" py-rel) dir)))))))
-       (or (let ((v (expand-file-name ".venv" root)))
-             (when (file-executable-p (expand-file-name py-rel v)) v))
-           (let ((v (expand-file-name "venv" root)))
-             (when (file-executable-p (expand-file-name py-rel v)) v))))
-     ;; 2. Fall back to active VIRTUAL_ENV environment variable
+     (let ((local-venv (expand-file-name ".venv" default-directory)))
+       (when (file-executable-p (expand-file-name py-rel local-venv))
+         local-venv))
+     (when-let* ((root (locate-dominating-file default-directory ".venv")))
+       (let ((v (expand-file-name ".venv" root)))
+         (when (file-executable-p (expand-file-name py-rel v)) v)))
      (when-let* ((env-venv (getenv "VIRTUAL_ENV")))
        (when (file-executable-p (expand-file-name py-rel env-venv))
          (directory-file-name env-venv))))))
@@ -234,7 +199,6 @@
     (let* ((bin-dir (expand-file-name (if (eq system-type 'windows-nt) "Scripts" "bin") venv-dir))
            (py-bin (expand-file-name (if (eq system-type 'windows-nt) "Scripts/python.exe" "bin/python") venv-dir))
            (old-path (or (getenv "PATH") "")))
-      ;; Prepend .venv/bin to buffer-local PATH and exec-path
       (setq-local process-environment
                   (cons (format "VIRTUAL_ENV=%s" venv-dir)
                         (cons (format "PATH=%s%s%s" bin-dir path-separator old-path)
@@ -244,9 +208,7 @@
       (setq-local python-shell-interpreter py-bin)
       venv-dir)))
 
-;; Python LSP command selector (prefers ty, falls back cleanly to alternatives)
 (defun my/python-lsp-command ()
-  "Return command for the first available Python language server."
   (cond
    ((executable-find "ty") '("ty" "server"))
    ((executable-find "basedpyright-langserver") '("basedpyright-langserver" "--stdio"))
@@ -255,38 +217,38 @@
    ((executable-find "ruff") '("ruff" "server"))
    (t nil)))
 
+;; Eglot & Flymake Performance Optimization
 (setq eglot-autoshutdown t
-      eglot-events-buffer-size 0
-      eldoc-idle-delay 0.4
-      eldoc-echo-area-use-multiline-p nil)
+      eglot-sync-connect nil           ; Never block the UI on connection
+      eglot-events-buffer-size 0       ; Disable event buffer logging
+      eldoc-idle-delay 0.5             ; Avoid spamming eldoc on every cursor hop
+      eldoc-echo-area-use-multiline-p nil
+      flymake-no-changes-timeout 0.5)  ; Debounce flymake linting while typing
 
 (with-eval-after-load 'eglot
   (add-to-list 'warning-suppress-types '(eglot))
-  ;; Register Astral ty server with automatic fallback
+  ;; Disable expensive JSON pretty-printing in Eglot
+  (fset #'jsonrpc--log-event #'ignore)
+
   (add-to-list 'eglot-server-programs
                `(((python-mode :language-id "python")
                   (python-ts-mode :language-id "python"))
                  . ,(lambda (&optional _interactive _project)
-                      (or (my/python-lsp-command)
-                          '("ty" "server"))))))
+                      (or (my/python-lsp-command) '("ty" "server"))))))
 
 (defun my/python-mode-setup ()
-  "Setup Python buffer, activate venv, and connect to language server."
   (my/python-activate-venv)
-  (if (my/python-lsp-command)
-      (progn
-        (require 'eglot)
-        (condition-case err
-            (eglot-ensure)
-          (error (message "Eglot: %s" (error-message-string err)))))
-    (message "Note: No Python LSP found (checked ty, basedpyright, pyright, ruff, pylsp). Install: uv tool install ty")))
+  (when (my/python-lsp-command)
+    (require 'eglot)
+    (condition-case err
+        (eglot-ensure)
+      (error (message "Eglot: %s" (error-message-string err))))))
 
-;; Explicitly hook BOTH modes so setup runs regardless of Tree-sitter remapping
 (add-hook 'python-mode-hook #'my/python-mode-setup)
 (add-hook 'python-ts-mode-hook #'my/python-mode-setup)
 
 ;; -----------------------------------------------------------------------------
-;; 11. Secondary Language LSP Hooks (Bash, JSON, YAML)
+;; 11. Secondary Language LSP Hooks
 ;; -----------------------------------------------------------------------------
 (defun my/bash-eglot-ensure ()
   (when (executable-find "bash-language-server")
@@ -320,27 +282,22 @@
 (setq-default line-spacing 0.15)
 (column-number-mode 1)
 
-;; Line numbers restricted strictly to code and text buffers
 (add-hook 'prog-mode-hook #'display-line-numbers-mode)
 (add-hook 'text-mode-hook #'display-line-numbers-mode)
 
 ;; -----------------------------------------------------------------------------
 ;; 13. Ergonomic Keybindings
 ;; -----------------------------------------------------------------------------
-;; Git: Magit status
 (keymap-global-set "C-x g" #'magit-status)
 
-;; Fast Recent Files via built-in completing-read
 (defun my/recentf-open ()
   "Find recent file using built-in completing-read."
   (interactive)
   (find-file (completing-read "Recent file: " recentf-list nil t)))
 (keymap-global-set "C-x C-r" #'my/recentf-open)
 
-;; Fast line commenting
 (keymap-global-set "M-/" #'comment-line)
 
-;; Safe Buffer Formatting (uses Eglot if supported, falls back to ruff format)
 (defun my/format-buffer ()
   "Format current buffer via Eglot or ruff."
   (interactive)
@@ -348,13 +305,12 @@
    ((and (bound-and-true-p eglot--managed-mode)
          (eglot-server-capable :documentFormattingProvider))
     (eglot-format-buffer))
-   ((and (derived-mode-p 'python-mode 'python-ts-mode)
+   ((and (derived-mode-p '(python-mode python-ts-mode))
          (executable-find "ruff"))
     (shell-command-on-region (point-min) (point-max) "ruff format -" (current-buffer) t))
    (t
     (message "No formatting provider available."))))
 
-;; Eglot LSP shortcuts under `C-c l`
 (with-eval-after-load 'eglot
   (keymap-set eglot-mode-map "C-c l r" #'eglot-rename)
   (keymap-set eglot-mode-map "C-c l a" #'eglot-code-actions)
