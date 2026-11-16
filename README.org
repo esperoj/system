@@ -1,0 +1,510 @@
+#+TITLE: Sovereign Computing Environment & Node Specification
+#+AUTHOR: Esperoj
+#+STARTUP: overview
+#+FILETAGS: :system:
+
+* Goal
+
+One plain-text repository that commissions and maintains the same personal
+computing environment on every node I use — for decades, without platform
+lock-in, vendor fatigue, or maintenance burden. Pragmatic, not ideological:
+when a pragmatic choice reduces real friction or long-term cost, it wins.
+
+| Node      | Host                 | Profile       | Privilege                |
+|-----------+----------------------+---------------+--------------------------|
+| PC        | Debian 13+           | ~desktop~     | user + sudo              |
+| Phone     | Android / Termux     | ~phone~       | user, no root            |
+| Pubnix    | shared rootless UNIX | ~pubnix~      | user only                |
+| Container | Debian 13-slim image | ~docker-base~ | user + passwordless sudo |
+
+A fresh node must be commissionable from nothing but a login: either an
+SSH agent forwarded from a trusted machine, or one encrypted seed file
+carried over by hand. [[*Commissioning a node][Commissioning a node]] is the playbook.
+
+Non-goals: multi-user hardening, offline-first installs, configuration
+frameworks, checksum verification of fetched binaries (an accepted trade,
+stated plainly in [[*fetch-bin (binary fallback)][fetch-bin]]).
+
+This document describes the system as it actually behaves — including where
+it deliberately bends its own rules. Where the code and this file disagree,
+one of them is wrong; fix it.
+
+* Axioms, with their honest boundaries
+
+| Axiom                  | Working rule                              | Where it bends                                                          |
+|------------------------+-------------------------------------------+-------------------------------------------------------------------------|
+| 1. Pragmatic Longevity | POSIX sh, GNU Make, Git, Stow, plain text | bash where pipefail/arrays earn it; the shebang is the source of truth    |
+| 2. Anti-Complexity     | the build model fits in your head         | one deliberate make idiom (foreach + include), used uniformly             |
+| 3. Structural Safety   | loud failures, strict perms, backup first | installs need network; rootless hosts get a loud skip, not a fake install |
+| 4. Pragmatic Flow      | millisecond no-ops, standalone CLIs       | a profile switch re-runs the installer once for the new profile's set     |
+
+** Axiom 1 — Pragmatic Longevity
+
+Foundations: POSIX sh, GNU Make, Git, plain text, GNU Stow (~--no-folding~),
+standard UNIX utilities. Anything here can be inspected with ~cat~, ~find~,
+and ~grep~. bash is allowed where it earns its keep — realistically
+~pipefail~ and arrays — and each use is visible in the shebang. On FreeBSD
+the make binary is ~gmake~; everywhere else ~make~.
+
+Avoided: configuration frameworks, dotfile DSLs, state daemons, formats
+that require special tooling to read.
+
+** Axiom 2 — Anti-Complexity
+
+- No external state database. System state is the filesystem plus make's
+  in-memory DAG.
+- Single-phase evaluation. Nothing persists between runs except ~.state/~,
+  disposable at any moment (~make clean-state~).
+- Each dependency is declared exactly once. A profile's module list drives
+  both loading and build order; there is no second list to drift out of sync.
+
+** Axiom 3 — Structural Safety
+
+- Loud failures. Package installs, binary fetches, and ~vault sync~ abort
+  with visible errors and nonzero exits. ~vault sync~ fails if the push fails.
+- Strict vault permissions. =~/.vault= is clamped to 0700 directories and
+  0600/0700 files on every apply and sync, and on demand via ~vault chmod~.
+- Backup before overwrite. ~dot~ moves an unmanaged host file that would
+  block a link into =~/.local/state/dot/backup/= instead of destroying it.
+- Network honesty. Applying configuration is offline (stow, vault apply,
+  prune, lint, fmt). Installing is online and fails loudly without network.
+  This system is offline-safe for everything that does not fetch, not
+  offline-first.
+- Rootless honesty. With no root and no sudo, ~install-sys-pkg~ prints a
+  loud skip listing what the host must provide, and exits 0 so module
+  fetch-bin fallbacks can run. It never pretends to have installed anything.
+
+** Axiom 4 — Pragmatic Flow
+
+- Shell startup performs zero work: no compilation, no network, no linking.
+- An unchanged goal set with no module edits resolves in milliseconds.
+- The core CLIs (~dot~, ~vault~, ~install-sys-pkg~, ~fetch-bin~) run
+  standalone once ~make base~ has installed them; Make is orchestration,
+  not a runtime dependency.
+
+* Architecture
+
+#+begin_example
+┌────────────────────────────────────────────┐
+│ MAKE LAYER                                 │
+│  goal-driven includes                      │
+│  distro package-set accumulation           │
+│  goal-keyed install stamps                 │
+│  DAG ordering, parallel-safe               │
+└──────────────┬─────────────────────────────┘
+               │ exports COMMON_PKGS DEBIAN_PKGS ... LIB_DIR
+               ▼
+┌────────────────────────────────────────────┐
+│ SHELL LAYER (host-aware)                   │
+│  install-sys-pkg · dot · vault · fetch-bin │
+└────────────────────────────────────────────┘
+#+end_example
+
+** Goal-driven includes, single-list profiles
+
+~make <target>~ includes ~modules/<target>/<target>.mk~ (the root Makefile
+does this with ~foreach~ over ~$(MAKECMDGOALS)~). Leaf modules pull their
+dependencies with ~include~ lines guarded by ~ifndef MOD_<NAME>~, so every
+file parses at most once and ~-j~ stays safe.
+
+Profiles — aggregators like ~base~, ~desktop~ — declare their modules once.
+That single list loads the modules and orders the build:
+
+#+begin_src makefile
+BASE_MODULES := 7zip age bin env git jq lib rclone shell ssh stow vault recipes
+$(foreach d,$(BASE_MODULES),$(eval include modules/$d/$d.mk))
+
+.PHONY: base
+base: sys-pkgs $(BASE_MODULES)
+#+end_src
+
+Because make expands prerequisites lazily, ~$(BASE_MODULES)~ at rule time
+is exactly what was included. Nothing is listed twice.
+
+** Package accumulation
+
+Modules append to distro-keyed sets; the root Makefile exports them:
+
+#+begin_src makefile
+COMMON_PKGS += ripgrep tmux
+DEBIAN_PKGS += emacs-gtk elpa-magit
+TERMUX_PKGS += emacs
+#+end_src
+
+** The sys-pkgs barrier
+
+Package installation is gated by one stamp file per goal set:
+~.state/sys-pkgs-<goals>.stamp~. Semantics, precisely:
+
+- Same goal set, no module edits → stamp fresh → ~install-sys-pkg~ does not
+  run; the build proceeds in milliseconds.
+- Any loaded module edited → ~$(MAKEFILE_LIST)~ newer than the stamp →
+  reinstall.
+- Different goal set (~make emacs~ after ~make desktop~) → a different stamp
+  → that goal's package set installs.
+
+Goal keying exists because a single global stamp goes stale on profile
+switches and would silently skip the new profile's packages. Known wrinkle,
+accepted: combining unrelated goals (~make desktop lint~) keys a combined
+stamp and triggers one extra package refresh. Run utility targets separately.
+
+** Shared recipe macro
+
+Stowing a module is one line in every module makefile:
+
+#+begin_src makefile
+stow-module = MODULES_DIR="$(MODULES_DIR)/$@" dot apply dotfiles
+#+end_src
+
+* Package delivery
+
+** install-sys-pkg (dual-mode installer)
+
+- Batch (from Make): no arguments. Detects the distro via ~os.sh~, unions
+  ~COMMON_PKGS~ with the matching distro set, deduplicates, installs.
+- Standalone: ~install-sys-pkg ripgrep tmux fzf~ installs ad hoc.
+- Rootless (no root, no sudo — a pubnix): prints a loud skip naming the
+  packages the host is expected to provide, exits 0. Module installers
+  then fetch user-local fallbacks where they exist; anything else needs
+  the host admin. Nothing is silently assumed installed.
+
+** Library contract
+
+Scripts resolve shared libraries (~os.sh~, ~fetch.sh~) through exactly two
+locations: ~$LIB_DIR~ (exported by Make) or =~/.local/lib= (installed,
+standalone use):
+
+#+begin_src sh
+LIB="${LIB_DIR:-$HOME/.local/lib}/sh/fetch.sh"
+[ -f "$LIB" ] || { echo "fetch.sh not found (run 'make base' first)" >&2; exit 1; }
+. "$LIB"
+#+end_src
+
+~bootstrap~ is the single sanctioned exception: it looks inside the
+repository first, because it runs before anything is installed.
+
+** fetch-bin (binary fallback)
+
+Installs prebuilt binaries to =~/.local/bin= from direct URLs or GitHub
+releases (~gh:owner/repo~ plus an asset regex), extracting common archive
+formats. Candidate selection when no binary name is given:
+
+1. A file exactly matching the expected name.
+2. Otherwise, the archive's single executable file.
+3. Otherwise, the archive's single regular file.
+4. Anything ambiguous fails loudly, listing every candidate.
+
+Accepted trade, stated plainly: no checksum or signature verification.
+fetch-bin trusts HTTPS and the source. Reasonable for a personal system;
+do not copy this posture into anything multi-user.
+
+* Dotfile management (~dot~)
+
+~dot~ wraps GNU Stow with conflict-safe preparation and a lock for
+parallel make.
+
+- ~--no-folding~, always. Directories in ~$HOME~ stay real directories;
+  only leaf files are symlinked.
+- Unmanaged host files that would block a link are moved to
+  =~/.local/state/dot/backup/= before Stow runs — never overwritten.
+- Stale or overridden symlinks are removed so Stow relinks cleanly.
+- Shared directories (=~/.config/autostart/=) accept files from multiple
+  modules without collision.
+- Concurrency: ~flock~ on =~/.local/state/dot.lock= serializes ~dot~ under
+  ~make -j~.
+
+Hygiene: when a file is removed from a module, its link in ~$HOME~ goes
+stale. ~dot prune~ removes broken links whose target resolves under
+~MODULES_DIR~; foreign broken links are never touched. Run it after pulls
+that delete files. Known limit: if an entire module directory is deleted
+from the repository, prune can no longer attribute its links — remove such
+modules properly first (~dot remove <module>~).
+
+#+begin_src sh
+dot apply <module...>
+dot remove <module...>
+dot prune
+dot ls
+#+end_src
+
+* Sovereign vault
+
+Private configuration, SSH keys, credentials, and machine-specific secrets
+live in an unencrypted Git repository at =~/.vault/=, mirroring the module
+layout of the system repository (~ssh/~, ~git/~, ~rclone/~, ~base/~, …).
+At rest it is protected by filesystem permissions (0700 dirs, 0600/0700
+files, clamped on every apply/sync) and by the disk/host itself; in transit
+it is protected by age encryption (the seed) or SSH (git push/pull).
+
+Profiles declare vault modules with ~VAULT_MODULES += ssh base git rclone~;
+~make vault~ applies them. On a node with no vault yet, ~make vault~ (and
+any profile) prints a loud skip and continues — commissioning is not blocked
+by secrets that have not arrived yet. On an established node, treat that
+skip as a fault: the vault should exist.
+
+** vault sync semantics
+
+~sync~ commits local changes, rebases on the upstream, and pushes:
+
+- The pull happens only once an upstream exists — the first sync after
+  ~vault init <url>~ just pushes.
+- Push failures are not masked: network or auth failure exits nonzero with
+  git's own error visible; ~vault: synced~ prints only after a real push.
+- With no remote configured, sync says so explicitly and keeps the commit
+  local.
+
+** Usage
+
+#+begin_src sh
+vault init [remote-git-url]   # clone, adopt a restored seed, or init empty
+vault sync
+vault apply <module...>
+vault remove <module...>
+vault chmod
+vault ls
+vault git <command...>        # pass-through
+#+end_src
+
+* Repository layout
+
+#+begin_example
+.
+├── bootstrap                  # Zero-to-Make minimal host primer
+├── Makefile                   # DAG builder, stamps, package orchestrator
+├── Dockerfile                 # Debian 13-slim container image
+├── README.org                 # this document
+├── modules/
+│   ├── base/                  # core profile
+│   ├── bin/                   # dot, vault, install-sys-pkg, fetch-bin, backup, ...
+│   ├── lib/                   # os.sh, fetch.sh (shared shell libraries)
+│   ├── crontab/ desktop/ dev/ docker-base/ emacs/ env/
+│   ├── phone/ pubnix/ recipes/ shell/ ssh/ stow/ vault/ wireproxy/
+└── .state/                    # ephemeral stamps (git-ignored, disposable)
+#+end_example
+
+Each module: ~<name>.mk~ (rules, packages, include guard), ~dotfiles/~
+(stowed files), optional ~install~ (binary fetcher).
+
+* Commissioning a node
+
+** The trust problem (read this first)
+
+The system repository is clonable over HTTPS from anywhere. The vault is
+private: cloning it needs an SSH key that, on a fresh node, does not exist
+yet — and the keys themselves live inside the vault. Three ways to break
+that circle, in order of preference:
+
+1. Cold seed — carry one age-encrypted file from a trusted node.
+   Works everywhere, including phones and hosts you only half-trust.
+2. SSH agent forwarding — borrow a trusted machine's agent for the first
+   clone only. Fastest on a pubnix you administer interactively.
+3. Fresh identity — generate a new key on the node and register it with
+   the git host. Most revocable, most manual.
+
+Whichever method: the first ~./bootstrap <profile>~ run completes with a
+loud =vault: ~/.vault missing — skipping vault apply= notice. That is
+expected. Bring the vault over, then run ~make vault~.
+
+** Method 1 — cold seed
+
+On a trusted node (your PC), create the seed. The archive contains the
+whole vault, including ~.git~ history and the origin remote:
+
+#+begin_src sh
+backup create ~/.vault ~/vault-seed.tar.gz.age
+#+end_src
+
+This encrypts to the first recipient in =~/.config/age/recipients.txt=.
+The matching identity (=~/.config/age/keys.txt=) is itself inside the
+vault, so a fresh node cannot decrypt this seed until the identity is
+placed first. Two honest ways to handle that:
+
+- Pass the identity file ahead of the seed (the "set a file and pass it"
+  path):
+  #+begin_src sh
+  ssh user@newnode 'mkdir -p ~/.config/age'
+  scp ~/.config/age/keys.txt user@newnode:~/.config/age/keys.txt
+  scp ~/vault-seed.tar.gz.age user@newnode:~/
+  #+end_src
+  Then on the new node: ~backup restore ~/vault-seed.tar.gz.age ~/.vault~.
+- Or make a passphrase-encrypted seed instead, so nothing but a passphrase
+  needs to travel:
+  #+begin_src sh
+  tar -C "$HOME" -czf - .vault | age -p -o ~/vault-seed.tar.gz.age
+  #+end_src
+  Restore on the new node (no identity file needed):
+  #+begin_src sh
+  mkdir -p ~/.vault
+  age -d ~/vault-seed.tar.gz.age | tar -C ~/.vault --strip-components=1 -xzf -
+  #+end_src
+
+Transport by scp, USB, or Syncthing — never plaintext, never a public
+paste. ~vault-seed*~ and ~*.age~ are git- and docker-ignored, so a seed
+cannot leak into a commit or an image by accident. Delete the seed from
+both ends once the node is commissioned.
+
+After restore, adopt in place and apply:
+
+#+begin_src sh
+vault init          # sees .git from the seed; clamps permissions
+make vault          # applies VAULT_MODULES (ssh base git rclone)
+#+end_src
+
+** Method 2 — SSH agent forwarding (pubnix first login)
+
+On the trusted machine, confirm the agent holds a key the git host accepts,
+then forward it for this one session:
+
+#+begin_src sh
+ssh-add -l                      # must list your vault key
+ssh -A user@pubnix.example      # or: ForwardAgent yes per-host in ssh config
+#+end_src
+
+On the pubnix, commission normally, then clone the vault through the
+forwarded agent:
+
+#+begin_src sh
+git clone https://github.com/esperoj/system.git ~/projects/system
+cd ~/projects/system
+./bootstrap pubnix              # completes; vault step skips loudly
+vault init git@codefloe.com:esperoj/vault.git
+make vault                      # stows the vault's SSH keys onto this host
+#+end_src
+
+From that point the node holds its own copy of the keys; ~vault sync~ and
+git need no forwarding anymore. Log out of the forwarded session.
+
+Security note: while forwarded, anyone who can reach the agent socket on
+that host (notably its admins) can use your key. Forward only to hosts you
+trust at least as much as the key; prefer the cold seed otherwise, or use
+~ssh-add -c~ so each use asks for confirmation locally.
+
+** Method 3 — fresh identity
+
+#+begin_src sh
+ssh-keygen -t ed25519 -C "esperoj@<node>"
+cat ~/.ssh/id_ed25519.pub       # register this on the git host
+vault init git@codefloe.com:esperoj/vault.git
+make vault
+#+end_src
+
+~make vault~ then links the vault's own keys into =~/.ssh=; ~dot~ backs the
+fresh key up into =~/.local/state/dot/backup/= first. Revoke the fresh key
+on the git host once the vault keys are in place, if unwanted.
+
+** PC (Debian 13+)
+
+#+begin_src sh
+git clone https://github.com/esperoj/system.git ~/projects/system
+cd ~/projects/system
+./bootstrap desktop             # installs make if missing, then the profile
+# bring the vault over (Method 1/2/3), then:
+make vault
+make setup-remotes              # ssh remotes, dual push github + codefloe
+exec bash -l
+#+end_src
+
+** Phone (Android / Termux)
+
+Fresh Termux has no git. Install it, grant storage, then commission:
+
+#+begin_src sh
+pkg update && pkg install -y git
+termux-setup-storage            # needed for /sdcard backups and workspace
+git clone https://github.com/esperoj/system.git ~/projects/system
+cd ~/projects/system
+./bootstrap phone
+# bring the vault over — cold seed is the natural path on a phone:
+#   scp vault-seed.tar.gz.age phone:~/   (or USB / Syncthing)
+backup restore ~/vault-seed.tar.gz.age ~/.vault   # identity placed first
+vault init && make vault
+exec bash -l
+#+end_src
+
+** Pubnix (shared rootless UNIX)
+
+Expectations, honestly: you have no root. The host must already provide
+~git~, ~make~ (~gmake~ on FreeBSD), ~curl~, ~perl~, and ~bash~. With no
+sudo, ~install-sys-pkg~ skips loudly; ~stow~ falls back to a source build
+into =~/.local=; ~fetch-bin~ installs the rest into =~/.local/bin=.
+Anything neither present nor fetchable needs the host admin.
+
+#+begin_src sh
+ssh -A user@pubnix.example      # Method 2; or carry a seed (Method 1)
+git clone https://github.com/esperoj/system.git ~/projects/system
+cd ~/projects/system
+./bootstrap pubnix
+vault init git@codefloe.com:esperoj/vault.git   # via the forwarded agent
+make vault
+exec bash -l
+#+end_src
+
+=~/.profile= already handles pubnix quirks (per-host ~TMPDIR~, python paths).
+crontab availability depends on the host's policy.
+
+** Container (docker-base)
+
+#+begin_src sh
+docker build -t system:base .
+docker run -it --rm system:base
+#+end_src
+
+The image runs ~./bootstrap docker-base~ at build time as the non-root user
+~esperoj~, who holds passwordless sudo for ad-hoc installs — a
+container-only convenience for disposable environments. NOPASSWD has no
+place on a persistent host. No secrets are baked in: ~.vault~, ~*.age~,
+and ~vault-seed*~ are docker-ignored. Commission the vault inside a running
+container with Method 1 or 2 if you need it there.
+
+** Verification checklist (every node)
+
+#+begin_src sh
+dot ls                          # modules present
+vault ls                        # vault modules present
+vault git status                # vault repo healthy
+command -v dot vault stow age   # core CLIs on PATH
+make -n desktop                 # inspect the graph without running it
+#+end_src
+
+* Daily operation
+
+#+begin_src sh
+cd ~/projects/system
+git pull --rebase
+make desktop                    # or phone / pubnix / docker-base
+dot prune                       # after pulls that removed files
+vault sync                      # honest exit codes
+#+end_src
+
+Isolated modules: ~make emacs~, ~make git~, ~make dev~. Ad-hoc packages:
+~install-sys-pkg ripgrep~. Force full package re-evaluation:
+~make clean-state && make <profile>~ (stamps are per goal set — switching
+profiles does not need clean-state). Inspect before running: ~make -n <goal>~.
+
+* Code quality contract
+
+~make lint~ runs shellcheck at default severity plus ~shfmt -d~. No blanket
+suppressions. Exactly three classes of finding are disabled, each inline
+at its use site with its reason:
+
+1. Dynamic library sources (~# shellcheck source=/dev/null~): libraries
+   resolve through ~$LIB_DIR~ or =~/.local/lib= at runtime.
+2. ~test -ef~ in ~dot~: not POSIX-specified, but implemented by every shell
+   this system runs under (dash, bash, busybox, mksh, BSD sh) — exactly the
+   semantics needed: same file after link resolution.
+3. Deliberate word-splitting of ~$PKGS~ in ~install-sys-pkg~: split on
+   purpose, to deduplicate line-per-package.
+
+A new warning is fixed, or it joins this list with a justification. Silence
+is never the default. ~make fmt~ formats in place. ~make review~ sends the
+latest commit to an AI reviewer with this file (~README.org~) as context;
+it needs network access and is a convenience, not part of the build.
+
+* Host support, honestly
+
+| Host                            | Status                                                                  |
+|---------------------------------+-------------------------------------------------------------------------|
+| Debian 13 — desktop, containers | Maintained; daily driver                                                |
+| Termux — phone                  | Maintained; daily driver                                                |
+| Alpine, FreeBSD                 | Code paths exist in bootstrap/install-sys-pkg; untested until exercised |
+| Pubnix (Debian/FreeBSD-based)   | Commissioning path above; depends on host-provided tools                |

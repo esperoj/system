@@ -108,13 +108,13 @@ review:
 	msg_file=$$(mktemp)
 	trap 'rm -f "$$msg_file"' EXIT INT TERM
 	cat <<-'MSG' > "$$msg_file"
-	Review the latest commit against the design principles, constraints, and architecture outlined in README.md and the codebase structure.
+	Review the latest commit against the design principles, constraints, and architecture outlined in README.org and the codebase structure.
 	Identify any bugs, architectural deviations, or unnecessary complexity.
 	Latest Commit Diff:
 	MSG
 	git show HEAD >> "$$msg_file"
 	model="$${AIDER_MODEL:-gemini/gemini-flash-latest}"
-	aider --model "$$model" --read README.md --message-file "$$msg_file"
+	aider --model "$$model" --read README.org --message-file "$$msg_file"
 
 .PHONY: setup-remotes
 

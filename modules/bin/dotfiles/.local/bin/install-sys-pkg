@@ -30,7 +30,11 @@ if [ "$DISTRO" != "termux" ] && [ "$(id -u)" -ne 0 ]; then
 	if command -v sudo >/dev/null 2>&1; then
 		SUDO="sudo"
 	else
-		echo "Warning: Not root and 'sudo' unavailable. Installation may fail." >&2
+		# Rootless host (pubnix): no privilege to install. Skip loudly;
+		# module installers fetch user-local fallbacks where available.
+		echo "install-sys-pkg: no root/sudo on [$DISTRO]; skipping system packages." >&2
+		echo "install-sys-pkg: host is expected to provide: $PKGS" >&2
+		exit 0
 	fi
 fi
 
