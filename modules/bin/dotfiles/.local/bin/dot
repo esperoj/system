@@ -1,96 +1,105 @@
 #!/bin/sh
-# dot - minimal Stow wrapper with conflict-safe host backup
+# dot - minimal Stow wrapper. apply overwrites: a host file "a" is kept
+# beside itself as ".a.bak" before Stow links the managed version in.
 set -eu
 
-MODULES_DIR="${MODULES_DIR:-.}"
-TARGET="${TARGET:-$HOME}"
-BACKUP_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/dot/backup"
+MODULES_DIR=${MODULES_DIR:-.}
+TARGET=${TARGET:-$HOME}
+STATE_DIR=${XDG_STATE_HOME:-$HOME/.local/state}
 
-die() {
-	echo "dot: $*" >&2
-	exit 1
-}
+die() { printf 'dot: %s\n' "$*" >&2; exit 1; }
 
 [ -d "$MODULES_DIR" ] || die "modules dir not found: $MODULES_DIR"
 [ -d "$TARGET" ] || die "target dir not found: $TARGET"
 MODULES_DIR=$(cd "$MODULES_DIR" && pwd -P)
 TARGET=$(cd "$TARGET" && pwd -P)
 
-# Concurrency lock for parallel Make (-j)
-LOCK="${XDG_STATE_HOME:-$HOME/.local/state}/dot.lock"
-mkdir -p "$(dirname "$LOCK")"
-exec 9>"$LOCK"
+# Serialise parallel runs (make -j); without flock we just run unlocked.
+mkdir -p "$STATE_DIR"
+exec 9>"$STATE_DIR/dot.lock"
 if command -v flock >/dev/null 2>&1; then
-	flock -w 60 9 || die "could not acquire lock"
+  flock -w 60 9 || die "could not acquire lock"
 fi
 
-# Prepare TARGET: resolve conflicts before Stow runs
-stash() {
-	for mod in "$@"; do
-		[ -d "$MODULES_DIR/$mod" ] || die "no such module: $mod"
-		(cd "$MODULES_DIR/$mod" && find . -type f ! -name '.*.swp' ! -name '*~' ! -name '.DS_Store') | while IFS= read -r rel || [ -n "$rel" ]; do
-			rel="${rel#./}"
-			src="$MODULES_DIR/$mod/$rel"
-			tgt="$TARGET/$rel"
-
-			if [ -L "$tgt" ]; then
-				# If already pointing to this source file, no-op
-				# shellcheck disable=SC3013
-
-				[ "$tgt" -ef "$src" ] && continue
-				# Stale or overridden symlink: remove pointer so Stow links cleanly
-				rm -f "$tgt"
-			elif [ -e "$tgt" ]; then
-				# Genuine unmanaged host file blocking Stow: back it up once
-				mkdir -p "$BACKUP_DIR/$(dirname "$rel")"
-				mv "$tgt" "$BACKUP_DIR/$rel"
-				echo "dot: backed up $tgt -> $BACKUP_DIR/$rel"
-			fi
-		done
-	done
+# Where a symlink points, canonically, even if it no longer exists:
+# resolve the deepest existing ancestor, then re-append the missing tail.
+referent() {
+  text=$(readlink "$1") || return 1
+  case $text in
+    /*) ref=$text ;;
+    *)  ref=${1%/*}/$text ;;
+  esac
+  tail=
+  while [ ! -d "$ref" ]; do
+    tail=/${ref##*/}$tail
+    ref=${ref%/*}
+    [ -n "$ref" ] || ref=/
+  done
+  ref=$(cd "$ref" && pwd -P) || return 1
+  printf '%s%s\n' "${ref%/}" "$tail"
 }
 
-# Remove stale symlinks: links left dangling in TARGET when a file (or
-# module) is removed from the repository. Only links whose target resolves
-# under MODULES_DIR are touched — foreign or intentionally broken links
-# elsewhere in $HOME are never pruned.
+# Keep the host file next to itself: dir/a -> dir/.a.bak (latest wins).
+backup() {
+  bak=${1%/*}/.${1##*/}.bak
+  mv -f "$1" "$bak"
+  printf 'dot: backed up %s -> %s\n' "$1" "$bak"
+}
+
+# Clear every path the modules claim, so Stow never hits a conflict.
+stash() {
+  for mod in "$@"; do
+    [ -d "$MODULES_DIR/$mod" ] || die "no such module: $mod"
+    dir=$(cd "$MODULES_DIR/$mod" && pwd -P)
+    find "$dir" -mindepth 1 ! -name '.*.swp' ! -name '*~' ! -name '.DS_Store' |
+    while IFS= read -r src; do
+      tgt=$TARGET/${src#"$dir"/}
+      if [ -d "$src" ] && [ ! -L "$src" ]; then
+        # Stow needs a directory here; only a non-directory blocks it.
+        if [ -e "$tgt" ] && [ ! -d "$tgt" ]; then backup "$tgt"; fi
+      elif [ -L "$tgt" ]; then
+        # Links carry no data: keep correct ones, drop stale/foreign ones.
+        [ "$(referent "$tgt")" = "$src" ] || rm -f "$tgt"
+      elif [ -e "$tgt" ]; then
+        backup "$tgt"
+      fi
+    done
+  done
+}
+
+# Remove dangling links in TARGET that point into MODULES_DIR (file or whole
+# module deleted from the repo). Foreign / intentionally broken links stay.
 # (Portable broken-link test; GNU find could use -xtype l instead.)
 prune() {
-	find "$TARGET" -type l ! -exec test -e {} \; -print |
-		while IFS= read -r link || [ -n "$link" ]; do
-			text=$(readlink "$link") || continue
-			case "$text" in
-			/*) dir=$(cd "$(dirname "$text")" 2>/dev/null && pwd -P) || continue ;;
-			*) dir=$(cd "$(dirname "$link")/$(dirname "$text")" 2>/dev/null && pwd -P) || continue ;;
-			esac
-			case "$dir" in
-			"$MODULES_DIR" | "$MODULES_DIR"/*)
-				rm -f "$link"
-				echo "dot: pruned $link"
-				;;
-			esac
-		done
+  find "$TARGET" -path "$MODULES_DIR" -prune -o \
+    -type l ! -exec test -e {} \; -print |
+  while IFS= read -r link; do
+    ref=$(referent "$link") || continue
+    case $ref in
+      "$MODULES_DIR"/*) rm -f "$link"; printf 'dot: pruned %s\n' "$link" ;;
+    esac
+  done
 }
 
-case "${1:-}" in
-apply)
-	shift
-	[ $# -ge 1 ] || die "usage: dot apply <module...>"
-	stash "$@"
-	stow -S -v --no-folding -d "$MODULES_DIR" -t "$TARGET" "$@"
-	;;
-remove)
-	shift
-	[ $# -ge 1 ] || die "usage: dot remove <module...>"
-	stow -D -v --no-folding -d "$MODULES_DIR" -t "$TARGET" "$@"
-	;;
-prune)
-	prune
-	;;
-ls)
-	find "$MODULES_DIR" -mindepth 1 -maxdepth 1 -type d ! -name '.*' -exec basename {} \; | LC_ALL=C sort
-	;;
-*)
-	die "usage: dot {apply|remove|prune|ls} [module...]"
-	;;
+case ${1:-} in
+  apply)
+    shift
+    [ $# -ge 1 ] || die "usage: dot apply <module...>"
+    stash "$@"
+    stow -S -v --no-folding -d "$MODULES_DIR" -t "$TARGET" "$@"
+    ;;
+  remove)
+    shift
+    [ $# -ge 1 ] || die "usage: dot remove <module...>"
+    stow -D -v --no-folding -d "$MODULES_DIR" -t "$TARGET" "$@"
+    ;;
+  prune) prune ;;
+  ls)
+    for d in "$MODULES_DIR"/*/; do
+      [ -d "$d" ] || continue
+      d=${d%/}
+      printf '%s\n' "${d##*/}"
+    done | LC_ALL=C sort
+    ;;
+  *) die "usage: dot {apply|remove|prune|ls} [module...]" ;;
 esac
