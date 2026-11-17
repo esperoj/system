@@ -12,5 +12,5 @@ TERMUX_PKGS += openssh gnupg
 
 .PHONY: base
 base: sys-pkgs $(BASE_MODULES)
-	ln -s $$(which fdfind) ~/.local/bin/fd
+	rm -f ~/.local/bin/fd && ln -s "$$(which fdfind)" ~/.local/bin/fd
 endif
