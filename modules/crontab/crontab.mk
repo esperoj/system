@@ -8,7 +8,6 @@ TERMUX_PKGS += cronie
 
 .PHONY: crontab
 crontab: sys-pkgs stow
-	@mkdir -p "$${HOME}/.config/crontab/"
-	$(stow-module)
+	@$(stow-module)
 	crontab "$${HOME}/.config/crontab/crontab"
 endif
