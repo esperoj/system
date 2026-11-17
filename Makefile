@@ -10,8 +10,9 @@ STATE_DIR   := $(CURDIR)/.state
 BIN_DIR     := $(MODULES_DIR)/bin/dotfiles/.local/bin
 LIB_DIR     := $(MODULES_DIR)/lib/dotfiles/.local/lib
 PATH        := $(BIN_DIR):$(HOME)/.local/bin:$(PATH)
+SUDO        ?= sudo
 
-export PATH LIB_DIR MODULES_DIR STATE_DIR
+export PATH LIB_DIR MODULES_DIR STATE_DIR SUDO
 
 # --- Shared Recipe Macro ---
 # Stow the current target's module into $TARGET.
