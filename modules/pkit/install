@@ -1,0 +1,21 @@
+#!/bin/sh
+set -eu
+
+if ! command -v pkit >/dev/null 2>&1; then
+	echo "Installing pkit..."
+	cd ~
+	mkdir -p projects
+	cd projects
+	git clone https://github.com/esperoj/pkit.git ;
+	git clone https://github.com/esperoj/records.git ;
+	{
+		cd records
+		make setup
+	}
+	{
+		cd pkit
+		make setup
+	}
+else
+	echo "✓ pkit is already installed."
+fi

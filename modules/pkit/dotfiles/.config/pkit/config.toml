@@ -1,0 +1,11 @@
+[archive]
+wayback_url = "https://files.esperoj.eu.org"
+
+[wayback]
+host = "archive.esperoj.eu.org"
+
+[http]
+proxy_prefix = ""
+
+[http.hosts]
+"web.archive.org" = "archive.esperoj.eu.org"

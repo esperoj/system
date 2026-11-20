@@ -4,19 +4,19 @@ set -eu
 
 LIB="${LIB_DIR:-$HOME/.local/lib}/sh/os.sh"
 [ -f "$LIB" ] || {
-    echo "<script>: os.sh not found at $LIB (run 'make base' first)" >&2
-    exit 1
+	echo "<script>: os.sh not found at $LIB (run 'make base' first)" >&2
+	exit 1
 }
 # shellcheck source=/dev/null
 . "$LIB"
 
 # Determine packages to install
 if [ $# -gt 0 ]; then
-    PKGS="$*"
+	PKGS="$*"
 else
-    distro_var="$(printf '%s_PKGS' "$DISTRO" | tr '[:lower:]' '[:upper:]')"
-    eval "DISTRO_PKGS=\${$distro_var:-}"
-    PKGS="${COMMON_PKGS:-} ${DISTRO_PKGS:-}"
+	distro_var="$(printf '%s_PKGS' "$DISTRO" | tr '[:lower:]' '[:upper:]')"
+	eval "DISTRO_PKGS=\${$distro_var:-}"
+	PKGS="${COMMON_PKGS:-} ${DISTRO_PKGS:-}"
 fi
 
 # Deduplicate
@@ -30,55 +30,55 @@ echo ":: Installing system packages for [$DISTRO]: $PKGS"
 #   SUDO set in env (even empty) -> used verbatim; SUDO="" forces direct calls.
 #   SUDO unset                   -> auto-detect (none on termux/root, else sudo).
 if [ "${SUDO+set}" = "set" ]; then
-    if [ -n "$SUDO" ]; then
-        # Validate the binary only; flags are allowed (e.g. SUDO="sudo -n").
-        sudo_bin=${SUDO%% *}
-        command -v "$sudo_bin" >/dev/null 2>&1 || {
-            echo "install-sys-pkg: SUDO='$SUDO' but '$sudo_bin' not found in PATH" >&2
-            exit 1
-        }
-    fi
+	if [ -n "$SUDO" ]; then
+		# Validate the binary only; flags are allowed (e.g. SUDO="sudo -n").
+		sudo_bin=${SUDO%% *}
+		command -v "$sudo_bin" >/dev/null 2>&1 || {
+			echo "install-sys-pkg: SUDO='$SUDO' but '$sudo_bin' not found in PATH" >&2
+			exit 1
+		}
+	fi
 else
-    SUDO=""
-    if [ "$DISTRO" != "termux" ] && [ "$(id -u)" -ne 0 ]; then
-        if command -v sudo >/dev/null 2>&1; then
-            SUDO="sudo"
-        else
-            # Rootless host (pubnix): no privilege to install. Skip loudly;
-            # module installers fetch user-local fallbacks where available.
-            echo "install-sys-pkg: no root/sudo on [$DISTRO]; skipping system packages." >&2
-            echo "install-sys-pkg: host is expected to provide: $PKGS" >&2
-            exit 0
-        fi
-    fi
+	SUDO=""
+	if [ "$DISTRO" != "termux" ] && [ "$(id -u)" -ne 0 ]; then
+		if command -v sudo >/dev/null 2>&1; then
+			SUDO="sudo"
+		else
+			# Rootless host (pubnix): no privilege to install. Skip loudly;
+			# module installers fetch user-local fallbacks where available.
+			echo "install-sys-pkg: no root/sudo on [$DISTRO]; skipping system packages." >&2
+			echo "install-sys-pkg: host is expected to provide: $PKGS" >&2
+			exit 0
+		fi
+	fi
 fi
 
 case "$DISTRO" in
-    debian)
-        export DEBIAN_FRONTEND=noninteractive
-        $SUDO apt-get update -qq
-        # shellcheck disable=SC2086
-        $SUDO apt-get install -y --no-install-recommends --no-install-suggests $PKGS
-        ;;
-    termux)
-        pkg update -y
-        # shellcheck disable=SC2086
-        pkg install -y $PKGS
-        ;;
-    alpine)
-        $SUDO apk update -q
-        # shellcheck disable=SC2086
-        $SUDO apk add --no-cache $PKGS
-        ;;
-    freebsd)
-        $SUDO pkg update
-        # shellcheck disable=SC2086
-        $SUDO pkg install -y $PKGS
-        ;;
-    *)
-        echo "install-sys-pkg: unsupported distribution '$DISTRO'" >&2
-        exit 1
-        ;;
+debian)
+	export DEBIAN_FRONTEND=noninteractive
+	$SUDO apt-get update -qq
+	# shellcheck disable=SC2086
+	$SUDO apt-get install -y --no-install-recommends --no-install-suggests $PKGS
+	;;
+termux)
+	pkg update -y
+	# shellcheck disable=SC2086
+	pkg install -y $PKGS
+	;;
+alpine)
+	$SUDO apk update -q
+	# shellcheck disable=SC2086
+	$SUDO apk add --no-cache $PKGS
+	;;
+freebsd)
+	$SUDO pkg update
+	# shellcheck disable=SC2086
+	$SUDO pkg install -y $PKGS
+	;;
+*)
+	echo "install-sys-pkg: unsupported distribution '$DISTRO'" >&2
+	exit 1
+	;;
 esac
 
 echo ":: Package installation complete."

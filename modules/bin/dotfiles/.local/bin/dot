@@ -7,7 +7,10 @@ MODULES_DIR=${MODULES_DIR:-.}
 TARGET=${TARGET:-$HOME}
 STATE_DIR=${XDG_STATE_HOME:-$HOME/.local/state}
 
-die() { printf 'dot: %s\n' "$*" >&2; exit 1; }
+die() {
+	printf 'dot: %s\n' "$*" >&2
+	exit 1
+}
 
 [ -d "$MODULES_DIR" ] || die "modules dir not found: $MODULES_DIR"
 [ -d "$TARGET" ] || die "target dir not found: $TARGET"
@@ -18,88 +21,91 @@ TARGET=$(cd "$TARGET" && pwd -P)
 mkdir -p "$STATE_DIR"
 exec 9>"$STATE_DIR/dot.lock"
 if command -v flock >/dev/null 2>&1; then
-  flock -w 60 9 || die "could not acquire lock"
+	flock -w 60 9 || die "could not acquire lock"
 fi
 
 # Where a symlink points, canonically, even if it no longer exists:
 # resolve the deepest existing ancestor, then re-append the missing tail.
 referent() {
-  text=$(readlink "$1") || return 1
-  case $text in
-    /*) ref=$text ;;
-    *)  ref=${1%/*}/$text ;;
-  esac
-  tail=
-  while [ ! -d "$ref" ]; do
-    tail=/${ref##*/}$tail
-    ref=${ref%/*}
-    [ -n "$ref" ] || ref=/
-  done
-  ref=$(cd "$ref" && pwd -P) || return 1
-  printf '%s%s\n' "${ref%/}" "$tail"
+	text=$(readlink "$1") || return 1
+	case $text in
+	/*) ref=$text ;;
+	*) ref=${1%/*}/$text ;;
+	esac
+	tail=
+	while [ ! -d "$ref" ]; do
+		tail=/${ref##*/}$tail
+		ref=${ref%/*}
+		[ -n "$ref" ] || ref=/
+	done
+	ref=$(cd "$ref" && pwd -P) || return 1
+	printf '%s%s\n' "${ref%/}" "$tail"
 }
 
 # Keep the host file next to itself: dir/a -> dir/.a.bak (latest wins).
 backup() {
-  bak=${1%/*}/.${1##*/}.bak
-  mv -f "$1" "$bak"
-  printf 'dot: backed up %s -> %s\n' "$1" "$bak"
+	bak=${1%/*}/.${1##*/}.bak
+	mv -f "$1" "$bak"
+	printf 'dot: backed up %s -> %s\n' "$1" "$bak"
 }
 
 # Clear every path the modules claim, so Stow never hits a conflict.
 stash() {
-  for mod in "$@"; do
-    [ -d "$MODULES_DIR/$mod" ] || die "no such module: $mod"
-    dir=$(cd "$MODULES_DIR/$mod" && pwd -P)
-    find "$dir" -mindepth 1 ! -name '.*.swp' ! -name '*~' ! -name '.DS_Store' |
-    while IFS= read -r src; do
-      tgt=$TARGET/${src#"$dir"/}
-      if [ -d "$src" ] && [ ! -L "$src" ]; then
-        # Stow needs a directory here; only a non-directory blocks it.
-        if [ -e "$tgt" ] && [ ! -d "$tgt" ]; then backup "$tgt"; fi
-      elif [ -L "$tgt" ]; then
-        # Links carry no data: keep correct ones, drop stale/foreign ones.
-        [ "$(referent "$tgt")" = "$src" ] || rm -f "$tgt"
-      elif [ -e "$tgt" ]; then
-        backup "$tgt"
-      fi
-    done
-  done
+	for mod in "$@"; do
+		[ -d "$MODULES_DIR/$mod" ] || die "no such module: $mod"
+		dir=$(cd "$MODULES_DIR/$mod" && pwd -P)
+		find "$dir" -mindepth 1 ! -name '.*.swp' ! -name '*~' ! -name '.DS_Store' |
+			while IFS= read -r src; do
+				tgt=$TARGET/${src#"$dir"/}
+				if [ -d "$src" ] && [ ! -L "$src" ]; then
+					# Stow needs a directory here; only a non-directory blocks it.
+					if [ -e "$tgt" ] && [ ! -d "$tgt" ]; then backup "$tgt"; fi
+				elif [ -L "$tgt" ]; then
+					# Links carry no data: keep correct ones, drop stale/foreign ones.
+					[ "$(referent "$tgt")" = "$src" ] || rm -f "$tgt"
+				elif [ -e "$tgt" ]; then
+					backup "$tgt"
+				fi
+			done
+	done
 }
 
 # Remove dangling links in TARGET that point into MODULES_DIR (file or whole
 # module deleted from the repo). Foreign / intentionally broken links stay.
 # (Portable broken-link test; GNU find could use -xtype l instead.)
 prune() {
-  find "$TARGET" -path "$MODULES_DIR" -prune -o \
-    -type l ! -exec test -e {} \; -print |
-  while IFS= read -r link; do
-    ref=$(referent "$link") || continue
-    case $ref in
-      "$MODULES_DIR"/*) rm -f "$link"; printf 'dot: pruned %s\n' "$link" ;;
-    esac
-  done
+	find "$TARGET" -path "$MODULES_DIR" -prune -o \
+		-type l ! -exec test -e {} \; -print |
+		while IFS= read -r link; do
+			ref=$(referent "$link") || continue
+			case $ref in
+			"$MODULES_DIR"/*)
+				rm -f "$link"
+				printf 'dot: pruned %s\n' "$link"
+				;;
+			esac
+		done
 }
 
 case ${1:-} in
-  apply)
-    shift
-    [ $# -ge 1 ] || die "usage: dot apply <module...>"
-    stash "$@"
-    stow -S -v --no-folding -d "$MODULES_DIR" -t "$TARGET" "$@"
-    ;;
-  remove)
-    shift
-    [ $# -ge 1 ] || die "usage: dot remove <module...>"
-    stow -D -v --no-folding -d "$MODULES_DIR" -t "$TARGET" "$@"
-    ;;
-  prune) prune ;;
-  ls)
-    for d in "$MODULES_DIR"/*/; do
-      [ -d "$d" ] || continue
-      d=${d%/}
-      printf '%s\n' "${d##*/}"
-    done | LC_ALL=C sort
-    ;;
-  *) die "usage: dot {apply|remove|prune|ls} [module...]" ;;
+apply)
+	shift
+	[ $# -ge 1 ] || die "usage: dot apply <module...>"
+	stash "$@"
+	stow -S -v --no-folding -d "$MODULES_DIR" -t "$TARGET" "$@"
+	;;
+remove)
+	shift
+	[ $# -ge 1 ] || die "usage: dot remove <module...>"
+	stow -D -v --no-folding -d "$MODULES_DIR" -t "$TARGET" "$@"
+	;;
+prune) prune ;;
+ls)
+	for d in "$MODULES_DIR"/*/; do
+		[ -d "$d" ] || continue
+		d=${d%/}
+		printf '%s\n' "${d##*/}"
+	done | LC_ALL=C sort
+	;;
+*) die "usage: dot {apply|remove|prune|ls} [module...]" ;;
 esac

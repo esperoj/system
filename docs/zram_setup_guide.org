@@ -1,123 +1,136 @@
-#+TITLE: Debian zRAM & Swap Optimization Guide
-#+AUTHOR: System Administration Notes
-#+OPTIONS: toc:2 num:t
+#+TITLE: Debian zRAM & Swap Optimization Guide #+AUTHOR: System Administration Notes #+OPTIONS: toc:2 num:t
 
-* Overview
+Overview
 
-This document outlines the steps to configure =zRAM= on Debian for low-memory environments (e.g., 4GB RAM running XFCE). The goal is to eliminate slow disk swapping by redirecting swap requests into a fast, compressed block device in RAM while safely disabling or down-prioritizing existing disk swap.
+Configure zRAM on Debian for low-memory systems (e.g., 4 GB RAM running XFCE).
 
-* Prerequisites
+zRAM creates a compressed block device in RAM and uses it as swap, reducing disk I/O and improving responsiveness under memory pressure.
 
-- Operating System: Debian (or Debian-based distribution)
-- Privileges: Root or =sudo= access
-- Basic utilities: =util-linux= (for =zramctl= and =swapon=)
+This guide uses =systemd-zram-generator= instead of the archived =zram-tools= project.
 
-If commands like =swapon= or =zramctl= were not found in your standard environment path, ensure =/sbin= and =/usr/sbin= are in your path or execute them with =sudo=.
+Prerequisites
+Debian 12 (Bookworm) or newer
+Root or =sudo= privileges
+systemd-based system
 
-#+BEGIN_SRC bash
-sudo apt update
-sudo apt install util-linux zram-tools
-#+END_SRC
+Install the required packages:
 
-* Step 1: Manage Existing Disk Swap
+#+BEGIN_SRC bash sudo apt update sudo apt install systemd-zram-generator util-linux #+END_SRC
 
-Check your current active swap devices to see if disk swap is active.
+Step 1: Configure zRAM
 
-#+BEGIN_SRC bash
-sudo swapon --show
-#+END_SRC
+Create the configuration file:
 
-** Option A: Turn Off Disk Swap Permanently (Recommended for SSD longevity & zero disk thrashing)
+#+BEGIN_SRC bash sudo nano /etc/systemd/zram-generator.conf #+END_SRC
 
-1. Turn off all active swap devices:
-   #+BEGIN_SRC bash
-   sudo swapoff -a
-   #+END_SRC
+Add:
 
-2. Disable existing swap entries in =/etc/fstab=. Open =/etc/fstab= and comment out any swap lines:
-   #+BEGIN_SRC text
-   # Comment out existing swap partitions or swapfiles:
-   # /swapfile none swap defaults 0 0
-   #+END_SRC
+#+BEGIN_SRC ini [zram0]
 
-** Option B: Retain Disk Swap as a Low-Priority Safety Net
+Use 100% of physical RAM as the maximum zRAM size
 
-If you prefer keeping disk swap as a fallback, set its priority lower than zRAM (=pri=5=):
+zram-size = ram
 
-In =/etc/fstab=:
-#+BEGIN_SRC text
-/swapfile none swap defaults,pri=5 0 0
-#+END_SRC
+Compression algorithm
 
-* Step 2: Configure zRAM
+compression-algorithm = zstd
 
-Edit the =zram-tools= configuration file to allocate 100% of RAM size to zRAM using the =zstd= compression algorithm.
+Give zRAM higher priority than disk swap
 
-1. Open =/etc/default/zramswap=:
-   #+BEGIN_SRC bash
-   sudo nano /etc/default/zramswap
-   #+END_SRC
+swap-priority = 100 #+END_SRC
 
-2. Set the following options:
-   #+BEGIN_SRC ini
-   # Compression algorithm (zstd provides the best memory/CPU efficiency balance)
-   ALGORITHM=zstd
+** Notes
 
-   # Size of the zram allocation as a percentage of total RAM
-   PERCENT=100
-   #+END_SRC
+=zram-size = ram= sets the logical zRAM capacity to the size of physical RAM. It does not reserve that amount of RAM upfront.
+=zstd= provides a good compression ratio, at the cost of some CPU usage.
+Higher swap priority means the kernel prefers zRAM over lower-priority swap devices.
+Step 2: Configure Disk Swap
 
-3. Enable and start the service:
-   #+BEGIN_SRC bash
-   sudo systemctl enable --now zramswap
-   #+END_SRC
+Check existing swap devices:
 
-* Step 3: Kernel Optimization for zRAM
+#+BEGIN_SRC bash sudo swapon --show #+END_SRC
 
-Create a sysctl configuration file to tune memory management specifically for compressed RAM swapping.
+** Option A: Keep Disk Swap as a Fallback (Recommended)
 
-1. Create =/etc/sysctl.d/99-zram.conf=:
-   #+BEGIN_SRC bash
-   sudo nano /etc/sysctl.d/99-zram.conf
-   #+END_SRC
+Retain disk swap but assign it a lower priority than zRAM.
 
-2. Add the following parameters:
-   #+BEGIN_SRC ini
-   # Aggressively send anonymous memory pages to zram early
-   vm.swappiness = 180
+For a swap file, edit =/etc/fstab=:
 
-   # Retain VFS directory and inode caches in memory longer
-   vm.vfs_cache_pressure = 50
+#+BEGIN_SRC fstab /swapfile none swap defaults,pri=5 0 0 #+END_SRC
 
-   # Disable swap read-ahead chunking (zero latency on RAM)
-   vm.page-cluster = 0
-   #+END_SRC
+For a swap partition, add =pri=5= to its existing swap options.
 
-3. Apply the changes immediately without rebooting:
-   #+BEGIN_SRC bash
-   sudo sysctl --system
-   #+END_SRC
+** Option B: Disable Disk Swap
 
-* Step 4: Verification
+If you prefer using zRAM exclusively:
 
-Confirm that zRAM is active and working properly.
+#+BEGIN_SRC bash sudo swapoff -a #+END_SRC
 
-** Check Swap Devices & Priorities
+Comment out existing swap entries in =/etc/fstab= to prevent them from activating at boot.
 
-#+BEGIN_SRC bash
-sudo swapon --show
-#+END_SRC
+Step 3: Tune Kernel Memory Management
 
-/Expected output should list =/dev/zram0= with a high priority (e.g., =32767=)./
+Create a sysctl configuration file:
 
-** Check zRAM Compression Ratio
+#+BEGIN_SRC bash sudo nano /etc/sysctl.d/99-zram.conf #+END_SRC
 
-#+BEGIN_SRC bash
-sudo zramctl
-#+END_SRC
+Add:
 
-** Monitor Real-Time Memory
+#+BEGIN_SRC ini
 
-#+BEGIN_SRC bash
-free -h
-#+END_SRC
+Prefer compressed RAM swap under memory pressure
+
+vm.swappiness = 100
+
+Retain filesystem caches longer
+
+vm.vfs_cache_pressure = 50
+
+Disable swap read-ahead for zRAM
+
+vm.page-cluster = 0 #+END_SRC
+
+Apply the settings:
+
+#+BEGIN_SRC bash sudo sysctl --system #+END_SRC
+
+Step 4: Activate zRAM
+
+Reload systemd and start the generated swap device:
+
+#+BEGIN_SRC bash sudo systemctl daemon-reload sudo systemctl start dev-zram0.swap #+END_SRC
+
+The generator automatically creates and activates the device during subsequent boots. No separate service needs enabling.
+
+Step 5: Verify Configuration
+
+** Check Active Swap
+
+#+BEGIN_SRC bash sudo swapon --show #+END_SRC
+
+Expected configuration:
+
+=/dev/zram0= with priority 100
+Disk swap, if retained, with priority 5
+
+** Check Compression Statistics
+
+#+BEGIN_SRC bash sudo zramctl #+END_SRC
+
+Useful columns:
+
+=DISKSIZE=: Logical zRAM capacity
+=DATA=: Uncompressed data size
+=COMPR=: Compressed data size
+=TOTAL=: Actual memory consumed
+
+** Check Memory Usage
+
+#+BEGIN_SRC bash free -h #+END_SRC
+
+Final Notes
+zRAM capacity is a maximum logical size, not preallocated physical memory.
+Keeping disk swap as a low-priority fallback is generally safer than disabling it entirely.
+Monitor CPU usage when using =zstd= on older processors.
+A swap priority of 100 ensures zRAM is preferred over disk swap at priority 5.
+Adjust zRAM size and compression algorithm according to workload and available CPU resources.
