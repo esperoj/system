@@ -1,11 +1,11 @@
-ifndef MOD_PKIT_ARCHIVE
-MOD_PKIT_ARCHIVE := 1
+ifndef MOD_PKIT_META
+MOD_PKIT_META := 1
 
-PKIT_ARCHIVE_MODULES := pkit vault
-$(foreach d,$(PKIT_ARCHIVE_MODULES),$(eval include modules/$d/$d.mk))
+PKIT_META_MODULES := pkit vault
+$(foreach d,$(PKIT_META_MODULES),$(eval include modules/$d/$d.mk))
 
 
-.PHONY: pkit-archive
-pkit-archive: sys-pkgs $(PKIT_ARCHIVE_MODULES)
-	@"$(MODULES_DIR)/pkit-archive/install"
+.PHONY: pkit-meta
+pkit-meta: sys-pkgs $(PKIT_META_MODULES)
+	@"$(MODULES_DIR)/pkit-meta/install"
 endif

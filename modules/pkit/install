@@ -1,14 +1,12 @@
 #!/bin/sh
 set -eu
 
-if ! command -v pkit >/dev/null 2>&1; then
+dir="$HOME/projects/pkit"
+
+if ! [ -d "$dir" ] ; then
 	echo "Installing pkit..."
-	cd ~
-	mkdir -p projects/pkit
-	cd projects/pkit
-	git clone https://github.com/esperoj/pkit.git .
-	make install
-  make setup-remotes
+	git clone https://github.com/esperoj/pkit.git "$dir"
+	make -C "$dir" install setup-remotes
 else
 	echo "✓ pkit is already installed."
 fi
