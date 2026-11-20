@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+
+dir=.local/share/pkit/archive
+
+if ! [ -d "$dir" ]; then
+	git clone git@github.com:esperoj/archive.git "$dir"
+  make -C "$dir" setup
+fi
