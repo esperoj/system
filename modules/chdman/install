@@ -1,0 +1,73 @@
+#!/bin/sh
+# chdman - mame-tools via the sys-pkgs barrier when privileged (root/sudo,
+# non-pubnix). Rootless fallback: apt-get download the .deb, extract to
+# ~/.local/opt/mame-tools, symlink every shipped binary into ~/.local/bin.
+set -eu
+
+LIB="${LIB_DIR:-$HOME/.local/lib}/sh/os.sh"
+[ -f "$LIB" ] || {
+	echo "chdman: os.sh not found at $LIB (run 'make base' first)" >&2
+	exit 1
+}
+# shellcheck source=/dev/null
+. "$LIB"
+
+# Same skip contract as 7zip: already on PATH (system or user-local) -> no-op.
+if command -v chdman >/dev/null 2>&1; then
+	echo "✓ chdman is already installed."
+	exit 0
+fi
+
+# Reached only when the barrier could not install (rootless pubnix).
+if [ "$DISTRO" != "debian" ]; then
+	echo "chdman: no install path for [$DISTRO]; the host must provide mame-tools." >&2
+	exit 1
+fi
+
+for tool in apt-get dpkg-deb; do
+	command -v "$tool" >/dev/null 2>&1 || {
+		echo "chdman: '$tool' not found; the host must provide mame-tools." >&2
+		exit 1
+	}
+done
+
+PREFIX="$HOME/.local"
+OPT_DIR="$PREFIX/opt/mame-tools"
+BIN_DIR="$PREFIX/bin"
+
+TMP_DIR=$(mktemp -d -t chdman-install-XXXXXX)
+trap 'rm -rf "$TMP_DIR"' EXIT
+
+# No root needed; uses the host's existing apt lists (the admin's job).
+echo ":: Downloading mame-tools .deb without root..."
+(cd "$TMP_DIR" && apt-get download mame-tools)
+
+DEB=$(find "$TMP_DIR" -maxdepth 1 -name 'mame-tools_*.deb' | head -n 1)
+[ -n "$DEB" ] || {
+	echo "chdman: apt-get download produced no .deb" >&2
+	exit 1
+}
+
+echo ":: Extracting to $OPT_DIR..."
+rm -rf "$OPT_DIR"
+mkdir -p "$OPT_DIR" "$BIN_DIR"
+dpkg-deb -x "$DEB" "$OPT_DIR"
+
+echo ":: Linking all mame-tools binaries into $BIN_DIR..."
+for bin in "$OPT_DIR"/usr/bin/*; do
+	[ -f "$bin" ] || continue
+	ln -sf "$bin" "$BIN_DIR/${bin##*/}"
+done
+
+[ -x "$BIN_DIR/chdman" ] || {
+	echo "chdman: deb shipped no usr/bin/chdman" >&2
+	exit 1
+}
+
+# Honest check: extracted binaries still link against host shared libraries.
+if command -v ldd >/dev/null 2>&1 && ldd "$BIN_DIR/chdman" 2>/dev/null | grep -q 'not found'; then
+	echo "chdman: warning — missing shared libraries on this host:" >&2
+	ldd "$BIN_DIR/chdman" 2>/dev/null | grep 'not found' >&2
+fi
+
+echo "✓ chdman installed to $BIN_DIR/chdman (rootless mame-tools)"
