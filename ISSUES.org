@@ -1,2 +1,3 @@
 * TODO add libdir to env and no need to duplicate it again in scripting
 * TODO do I need to make rclone and such depend on base to have lib and bin or just use raw like current approachs?
+* TODO cant ran pkit-meta and pkit-archive at same time
