@@ -2,10 +2,10 @@
 wayback_url = "https://files.esperoj.eu.org"
 
 [wayback]
-host = "archive.esperoj.eu.org"
+host = "wb.esperoj.eu.org"
 
 [http]
 proxy_prefix = ""
 
 [http.hosts]
-"web.archive.org" = "archive.esperoj.eu.org"
+"web.archive.org" = "wb.esperoj.eu.org"
