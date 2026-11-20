@@ -1,0 +1,110 @@
+#!/bin/sh
+# convert-iso-to-chd - lossless PS2 disc images -> CHD (preservation + PCSX2)
+#
+# DVD titles: chdman createdvd -c lzma,zstd,flac,huff
+# CD titles:  chdman createcd  -c cdlz,cdzl,cdfl,cdzs
+#
+# chdman tries every listed codec on each hunk and keeps the smallest, so
+# listing all codecs gives the best lossless ratio. Decode stays far faster
+# than the PS2's ~5 MB/s DVD bus (tiny hunks, cached), so PCSX2 playback is
+# unaffected; only the one-time encode is slow. Inputs are never modified.
+set -eu
+
+usage() {
+	cat <<USAGE >&2
+Usage: convert-iso-to-chd [-c | -d] [-o outdir] <image.iso|image.cue>...
+  -c       force CD  (createcd)
+  -d       force DVD (createdvd)
+  -o DIR   write .chd into DIR (default: beside each input)
+Auto: .cue/.toc/.gdi -> CD; .iso <= 700 MiB -> CD, larger -> DVD.
+Existing .chd outputs are skipped, so an interrupted batch resumes safely.
+USAGE
+	exit 1
+}
+
+command -v chdman >/dev/null 2>&1 || {
+	echo "convert-iso-to-chd: chdman not found (run 'make chdman' first)" >&2
+	exit 1
+}
+
+FORCE=""
+OUTDIR=""
+while getopts ":cdo:h" opt; do
+	case "$opt" in
+	c) FORCE="cd" ;;
+	d) FORCE="dvd" ;;
+	o) OUTDIR="$OPTARG" ;;
+	h | *) usage ;;
+	esac
+done
+shift $((OPTIND - 1))
+[ $# -ge 1 ] || usage
+
+[ -z "$OUTDIR" ] || mkdir -p "$OUTDIR"
+
+# Largest possible CD: 80 min * 60 s * 75 sectors * 2048 bytes.
+CD_MAX=737280000
+
+PARTIAL=""
+trap 'rm -f "$PARTIAL"' EXIT INT TERM
+
+for input in "$@"; do
+	[ -f "$input" ] || {
+		echo "convert-iso-to-chd: not a file: $input" >&2
+		exit 1
+	}
+
+	base=${input##*/}
+	stem=${base%.*}
+	ext=$(printf '%s' "${base##*.}" | tr '[:upper:]' '[:lower:]')
+
+	if [ -n "$OUTDIR" ]; then
+		out="$OUTDIR/$stem.chd"
+	else
+		out="${input%.*}.chd"
+	fi
+
+	if [ -e "$out" ]; then
+		echo "✓ $out exists — skipping."
+		continue
+	fi
+
+	kind=$FORCE
+	if [ -z "$kind" ]; then
+		case "$ext" in
+		cue | toc | gdi)
+			kind="cd"
+			;;
+		iso)
+			size=$(wc -c <"$input" | tr -d '[:space:]')
+			if [ "$size" -le "$CD_MAX" ]; then
+				kind="cd"
+			else
+				kind="dvd"
+			fi
+			;;
+		*)
+			echo "convert-iso-to-chd: '$input': use .iso, or .cue/.toc/.gdi for raw CD dumps" >&2
+			exit 1
+			;;
+		esac
+	fi
+
+	PARTIAL="$out.partial"
+	case "$kind" in
+	cd)
+		echo ":: $input -> $out [CD]"
+		chdman createcd -i "$input" -o "$PARTIAL" -c cdlz,cdzl,cdfl,cdzs
+		;;
+	dvd)
+		echo ":: $input -> $out [DVD]"
+		chdman createdvd -i "$input" -o "$PARTIAL" -c lzma,zstd,flac,huff
+		;;
+	esac
+
+	# Atomic publish: a killed run never leaves a half-written .chd behind.
+	mv -f "$PARTIAL" "$out"
+	PARTIAL=""
+	chdman info -i "$out"
+	echo "✓ $out"
+done
