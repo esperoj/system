@@ -12,7 +12,6 @@ TERMUX_PKGS += openssh gnupg fd
 
 .PHONY: base
 base: sys-pkgs $(BASE_MODULES)
-	@$(stow-module)
 	if command -v fdfind >/dev/null 2>&1; then
 		ln -sfn "$(command -v fdfind)" "$$HOME/.local/bin/fd"
 	fi

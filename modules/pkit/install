@@ -3,7 +3,7 @@ set -eu
 
 dir="$HOME/projects/pkit"
 
-if ! [ -d "$dir" ] ; then
+if ! [ -d "$dir" ]; then
 	echo "Installing pkit..."
 	git clone https://github.com/esperoj/pkit.git "$dir"
 	make -C "$dir" install setup-remotes

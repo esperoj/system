@@ -3,7 +3,9 @@ set -eu
 
 # shellcheck source=/dev/null
 . "${LIB_DIR}/sh/os.sh"
-
+if [ "$DISTRO" = "termux" ]; then
+	exit
+fi
 if [ ! -f "$HOME/.local/bin/rclone" ]; then
 	echo "Installing rclone..."
 	fetch-bin "gh:rclone/rclone" "linux-${ARCH}\.zip$" "rclone" "$HOME/.local/bin/rclone"
