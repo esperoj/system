@@ -2,7 +2,7 @@ case ":$PATH:" in
     *":$HOME/.local/bin:"*) ;;
     *) export PATH="$HOME/.local/bin:$PATH" ;;
 esac
-
+export PATH="$PATH:$HOME/projects/pkit/scripts"
 case ":${LD_LIBRARY_PATH:-}:" in
     *":$HOME/.local/lib:"*) ;;
     *) export LD_LIBRARY_PATH="$HOME/.local/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ;;
