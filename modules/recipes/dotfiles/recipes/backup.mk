@@ -73,8 +73,10 @@ sync-backups: info
 
 sync-media: info
 ifeq ($(MACHINE_TYPE),desktop)
-	@echo "--> Syncing PPSSPP config to pcloud..."
-	rclone sync $(HOME)/.config/ppsspp/ $(PCLOUD_REMOTE)ppsspp -v
+	@echo "--> Syncing Azahar config to pcloud..."
+#	rclone sync $(HOME)/.config/ppsspp/ $(PCLOUD_REMOTE)ppsspp -v
+	rclone sync $(HOME)/.local/share/azahar-emu $(PCLOUD_REMOTE)azahar-emu/share/azahar-emu -v
+	rclone sync $(HOME)/.config/azahar-emu $(PCLOUD_REMOTE)azahar-emu/config/azahar-emu -v
 else ifeq ($(MACHINE_TYPE),phone)
 	@echo "--> Syncing Android DCIM to pcloud..."
 	rclone sync /sdcard/DCIM $(PCLOUD_REMOTE)DCIM -v
