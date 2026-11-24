@@ -404,7 +404,7 @@ vault init && make vault
 exec bash -l
 #+end_src
 
-Nothing else is needed beforehand: the Termux app already preloads ~termux-exec~ (its ~execve()~ hook rewrites ~#!/bin/sh~ shebangs to the Termux prefix), and ~bootstrap~ installs ~make~ itself through ~install-sys-pkg~ the first time it is missing. CI reproduces the phone inside ~termux/termux-docker~, which ships without that preload, by running ~pkg install termux-exec~ and exporting ~LD_PRELOAD="$PREFIX/lib/libtermux-exec.so"~ first — the same environment a real device provides.
+Nothing else is needed beforehand: the Termux app starts every session through ~login~, which preloads ~termux-exec~ (its ~execve()~ hook rewrites ~#!/bin/sh~ shebangs to the Termux prefix) before starting the shell, and ~bootstrap~ installs ~make~ itself through ~install-sys-pkg~ the first time it is missing. CI reproduces the phone inside ~termux/termux-docker~ the same way: the whole commissioning script runs through ~login -c~, the exact entry point a device uses. (The image starts ~bash~ without the preload, and exporting ~LD_PRELOAD~ mid-script comes too late — the hook must live in the process that calls ~execve~, so it has to be set before the shell starts.)
 
 ** Pubnix (shared rootless UNIX)
 

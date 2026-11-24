@@ -72,14 +72,20 @@ jobs:
       - uses: actions/checkout@v4
       - name: Commission phone profile in Termux
         run: |
-          docker run --rm -v "$PWD:/src:ro" termux/termux-docker bash -c '
+          # A device enters Termux through `login`, which exports
+          # LD_PRELOAD=libtermux-exec-ld-preload.so -- the execve() hook
+          # that rewrites #!/bin/sh shebangs to the Termux prefix -- and
+          # then execs the shell. The docker image starts bash without it,
+          # and exporting LD_PRELOAD mid-script is too late: the hook must
+          # be loaded in the process that calls execve, so it has to be in
+          # the environment the shell is started with. Run the whole
+          # commissioning script through `login -c`, exactly as on a phone.
+          docker run --rm -v "$PWD:/src:ro" termux/termux-docker login -c '
             set -e
-            # On a phone the Termux app preloads libtermux-exec, whose
-            # execve() hook rewrites /bin/sh shebangs to the Termux prefix.
-            # The docker image ships no such preload, so enable it the same
-            # way before running anything with a shebang.
-            pkg install -y termux-exec
-            export LD_PRELOAD="$PREFIX/lib/libtermux-exec.so"
+            test -n "${LD_PRELOAD:-}" || {
+              echo "login set no LD_PRELOAD; is termux-exec missing?" >&2
+              exit 1
+            }
             mkdir -p ~/projects/system
             cp -a /src/. ~/projects/system/
             cd ~/projects/system
