@@ -13,7 +13,7 @@ jobs:
     name: Lint (shellcheck + shfmt)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@main
       - name: Install shellcheck and shfmt
         run: |
           sudo apt-get update -qq
@@ -26,7 +26,7 @@ jobs:
     name: Debian image (docker-base profile)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@main
       - name: Build image
         run: docker build -t system:base .
       - name: Smoke test
@@ -49,7 +49,7 @@ jobs:
           apt-get update -qq
           apt-get install -y -qq --no-install-recommends \
             git make curl perl ca-certificates unzip xz-utils bzip2
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@main
       - name: Commission base profile as an unprivileged user
         run: |
           useradd -m tester
@@ -69,7 +69,7 @@ jobs:
     name: Termux (phone profile)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@main
       - name: Commission phone profile in Termux
         run: |
           # A device enters Termux through `login`, which exports
