@@ -73,10 +73,18 @@ jobs:
       - name: Commission phone profile in Termux
         run: |
           docker run --rm -v "$PWD:/src:ro" termux/termux-docker bash -c '
+            set -e
+            # On a phone the Termux app preloads libtermux-exec, whose
+            # execve() hook rewrites /bin/sh shebangs to the Termux prefix.
+            # The docker image ships no such preload, so enable it the same
+            # way before running anything with a shebang.
+            pkg install -y termux-exec
+            export LD_PRELOAD="$PREFIX/lib/libtermux-exec.so"
             mkdir -p ~/projects/system
             cp -a /src/. ~/projects/system/
             cd ~/projects/system
             ./bootstrap phone
+            make phone
             export PATH="$HOME/.local/bin:$PATH"
             command -v dot vault jq rclone restic age 7z stow
             dot ls

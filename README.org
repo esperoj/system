@@ -161,7 +161,7 @@ Every module tool goes through one gate — ~install-tool <name> <source> [asset
 1. Already on PATH → skip (it came from apt, pkg, or a previous fetch — all the same).
 2. Otherwise fetch the static binary into =~/.local/bin= via ~fetch-bin~.
 
-So the same one-line rule covers every node type: Debian installs ~jq~ through apt and skips the fetch; Termux installs it through ~pkg~ and skips; a pubnix fetches it. Patterns may use placeholders substituted from the OS engine — ~{OS}~, ~{ARCH}~ (Go-style ~amd64~), ~{XARCH}~ (vendor-style ~x64~, as 7zip names it):
+So the same one-line rule covers every node type: Debian installs ~jq~ through apt and skips the fetch; Termux installs it through ~pkg~ and skips; a pubnix fetches it. Patterns may use placeholders substituted from the OS engine — ~{OS}~, ~{ARCH}~ (Go-style ~amd64~), ~{XARCH}~ (vendor-style ~x64~, as 7zip names it). On Termux ~{OS}~ substitutes ~linux~, because upstream archives never publish "android" assets — their static linux builds are what run there:
 
 #+begin_src makefile
 .PHONY: jq
@@ -404,6 +404,8 @@ vault init && make vault
 exec bash -l
 #+end_src
 
+Nothing else is needed beforehand: the Termux app already preloads ~termux-exec~ (its ~execve()~ hook rewrites ~#!/bin/sh~ shebangs to the Termux prefix), and ~bootstrap~ installs ~make~ itself through ~install-sys-pkg~ the first time it is missing. CI reproduces the phone inside ~termux/termux-docker~, which ships without that preload, by running ~pkg install termux-exec~ and exporting ~LD_PRELOAD="$PREFIX/lib/libtermux-exec.so"~ first — the same environment a real device provides.
+
 ** Pubnix (shared rootless UNIX)
 
 Expectations, honestly: you have no root, and nothing to configure — privilege is auto-detected. The host must already provide ~git~, ~make~ (~gmake~ on FreeBSD), ~curl~, ~perl~, ~bash~, and the archive tools the fetches need (~unzip~, ~xz~, ~bzip2~). With no sudo, ~install-sys-pkg~ skips loudly; ~stow~ falls back to a source build into =~/.local=; ~install-tool~ fetches the rest into =~/.local/bin=. Anything neither present nor fetchable needs the host admin.
@@ -460,7 +462,7 @@ GitHub Actions (~.github/workflows/ci.yml~) exercises the system on every push a
 | ~lint~          | shellcheck + shfmt pass on every script                             |
 | ~debian-image~  | ~docker build~ of the Dockerfile; CLIs and ~dot ls~ inside the image |
 | ~debian-rootless~ | a pubnix simulation: unprivileged user, no sudo — loud skip + user-local fetch fallbacks + ~0.2s~ no-op re-run |
-| ~termux~        | the full phone profile commissioned inside ~termux/termux-docker~   |
+| ~termux~        | the full phone profile commissioned inside ~termux/termux-docker~ (with ~termux-exec~ preloaded, as on a device), then a no-op re-run |
 
 Image publishing to the codefloe registry stays in ~.crow/publish.yaml~ (cron/manual).
 

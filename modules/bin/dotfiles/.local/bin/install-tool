@@ -14,6 +14,8 @@
 #
 # Placeholders {OS} {ARCH} {XARCH} are substituted from the OS engine
 # (lib.sh): ARCH is Go-style (amd64), XARCH is vendor-style (x64).
+# {OS} maps android to linux: upstream archives never publish "android"
+# assets, and their static linux builds are what run under Termux.
 set -eu
 
 [ $# -ge 2 ] || {
@@ -39,7 +41,12 @@ if command -v "$name" >/dev/null 2>&1; then
 	exit 0
 fi
 
-src=$(printf '%s' "$src" | sed -e "s|{OS}|$OS|g" -e "s|{ARCH}|$ARCH|g" -e "s|{XARCH}|$XARCH|g")
-pat=$(printf '%s' "$pat" | sed -e "s|{OS}|$OS|g" -e "s|{ARCH}|$ARCH|g" -e "s|{XARCH}|$XARCH|g")
+case "$OS" in
+android) ASSET_OS="linux" ;;
+*) ASSET_OS="$OS" ;;
+esac
+
+src=$(printf '%s' "$src" | sed -e "s|{OS}|$ASSET_OS|g" -e "s|{ARCH}|$ARCH|g" -e "s|{XARCH}|$XARCH|g")
+pat=$(printf '%s' "$pat" | sed -e "s|{OS}|$ASSET_OS|g" -e "s|{ARCH}|$ARCH|g" -e "s|{XARCH}|$XARCH|g")
 
 fetch-bin "$src" "$pat" "$bin" "$HOME/.local/bin/$name"
