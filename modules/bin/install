@@ -1,0 +1,11 @@
+#!/bin/sh
+# bin module host fixups that are not stowable.
+set -eu
+
+# Debian's fd-find package ships the binary as 'fdfind'; expose it under
+# the universal name. Termux and fetched binaries already provide 'fd'.
+if command -v fdfind >/dev/null 2>&1 && ! command -v fd >/dev/null 2>&1; then
+	mkdir -p "$HOME/.local/bin"
+	ln -sfn "$(command -v fdfind)" "$HOME/.local/bin/fd"
+	echo "✓ aliased fd -> $(command -v fdfind)"
+fi

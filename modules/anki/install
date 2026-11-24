@@ -1,32 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
-LIB="${LIB_DIR:-$HOME/.local/lib}/sh/os.sh"
+
+LIB="${LIB_DIR:-$HOME/.local/lib}/sh/lib.sh"
 [ -f "$LIB" ] || {
-	echo "<script>: os.sh not found at $LIB (run 'make base' first)" >&2
+	echo "anki: lib.sh not found at $LIB (run 'make base' first)" >&2
 	exit 1
 }
 # shellcheck source=/dev/null
 . "$LIB"
-# shellcheck source=/dev/null
-. "${LIB_DIR:-$HOME/.local/lib}/sh/fetch.sh"
 
 PREFIX="${HOME}/.local"
 
-# 2. Map architecture to Anki release asset naming
-case "${ARCH:-$(uname -m)}" in
-amd64 | x86_64)
+# Map architecture to Anki release asset naming
+case "$ARCH" in
+amd64)
 	ARCH_PATTERN="x86_64"
 	;;
-arm64 | aarch64)
+arm64)
 	ARCH_PATTERN="aarch64"
 	;;
 *)
-	echo "Error: Anki official binaries only support x86_64 and aarch64 (current: ${ARCH:-$(uname -m)})" >&2
+	echo "Error: Anki official binaries only support x86_64 and aarch64 (current: $ARCH)" >&2
 	exit 1
 	;;
 esac
 
-# 3. Only skip if already installed AND executable on this CPU
+# Only skip if already installed AND executable on this CPU
 if command -v anki >/dev/null 2>&1 && anki --version >/dev/null 2>&1; then
 	echo "✓ Anki is already installed and functional."
 	exit 0

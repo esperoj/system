@@ -5,6 +5,6 @@ include modules/stow/stow.mk
 
 .PHONY: wireproxy
 wireproxy: sys-pkgs stow
-	@"$(MODULES_DIR)/wireproxy/install"
+	@install-tool wireproxy gh:whyvl/wireproxy 'wireproxy_linux_{ARCH}\.tar\.gz$$'
 	$(stow-module)
 endif

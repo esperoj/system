@@ -6,5 +6,5 @@ TERMUX_PKGS += p7zip
 
 .PHONY: 7zip
 7zip: sys-pkgs
-	@"$(MODULES_DIR)/7zip/install"
+	@install-tool 7z gh:ip7z/7zip 'linux-{XARCH}\.tar\.xz$$' 7zz
 endif

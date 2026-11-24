@@ -1,10 +1,20 @@
 #!/bin/sh
-# install-sys-pkg - standalone or batch package installer
+# install-sys-pkg - the single system-package installer.
+#
+#   Batch (from Make, no arguments): installs COMMON_PKGS plus the current
+#   distro's set, both accumulated by the loaded modules.
+#   Standalone: install-sys-pkg ripgrep tmux fzf installs ad hoc.
+#
+# Privilege model — stated once, used everywhere:
+#   root or Termux  -> install directly
+#   sudo on PATH    -> prefix the command
+#   otherwise       -> rootless host: loud skip, exit 0, so module-level
+#                      user-local fallbacks (install-tool/fetch-bin) run
 set -eu
 
-LIB="${LIB_DIR:-$HOME/.local/lib}/sh/os.sh"
+LIB="${LIB_DIR:-$HOME/.local/lib}/sh/lib.sh"
 [ -f "$LIB" ] || {
-	echo "<script>: os.sh not found at $LIB (run 'make base' first)" >&2
+	echo "install-sys-pkg: lib.sh not found at $LIB (run 'make base' first)" >&2
 	exit 1
 }
 # shellcheck source=/dev/null
@@ -14,9 +24,14 @@ LIB="${LIB_DIR:-$HOME/.local/lib}/sh/os.sh"
 if [ $# -gt 0 ]; then
 	PKGS="$*"
 else
-	distro_var="$(printf '%s_PKGS' "$DISTRO" | tr '[:lower:]' '[:upper:]')"
-	eval "DISTRO_PKGS=\${$distro_var:-}"
-	PKGS="${COMMON_PKGS:-} ${DISTRO_PKGS:-}"
+	case "$DISTRO" in
+	debian) DISTRO_PKGS="${DEBIAN_PKGS:-}" ;;
+	termux) DISTRO_PKGS="${TERMUX_PKGS:-}" ;;
+	alpine) DISTRO_PKGS="${ALPINE_PKGS:-}" ;;
+	freebsd) DISTRO_PKGS="${FREEBSD_PKGS:-}" ;;
+	*) DISTRO_PKGS="" ;;
+	esac
+	PKGS="${COMMON_PKGS:-} ${DISTRO_PKGS}"
 fi
 
 # Deduplicate
@@ -26,31 +41,15 @@ PKGS=$(printf '%s\n' $PKGS | sort -u | tr '\n' ' ' | sed 's/^ //;s/ $//')
 
 echo ":: Installing system packages for [$DISTRO]: $PKGS"
 
-# Privilege escalation:
-#   SUDO set in env (even empty) -> used verbatim; SUDO="" forces direct calls.
-#   SUDO unset                   -> auto-detect (none on termux/root, else sudo).
-if [ "${SUDO+set}" = "set" ]; then
-	if [ -n "$SUDO" ]; then
-		# Validate the binary only; flags are allowed (e.g. SUDO="sudo -n").
-		sudo_bin=${SUDO%% *}
-		command -v "$sudo_bin" >/dev/null 2>&1 || {
-			echo "install-sys-pkg: SUDO='$SUDO' but '$sudo_bin' not found in PATH" >&2
-			exit 1
-		}
-	fi
-else
+if [ "$(id -u)" -eq 0 ] || [ "$DISTRO" = "termux" ]; then
 	SUDO=""
-	if [ "$DISTRO" != "termux" ] && [ "$(id -u)" -ne 0 ]; then
-		if command -v sudo >/dev/null 2>&1; then
-			SUDO="sudo"
-		else
-			# Rootless host (pubnix): no privilege to install. Skip loudly;
-			# module installers fetch user-local fallbacks where available.
-			echo "install-sys-pkg: no root/sudo on [$DISTRO]; skipping system packages." >&2
-			echo "install-sys-pkg: host is expected to provide: $PKGS" >&2
-			exit 0
-		fi
-	fi
+elif command -v sudo >/dev/null 2>&1; then
+	SUDO="sudo"
+else
+	echo "install-sys-pkg: no root/sudo on [$DISTRO]; skipping system packages." >&2
+	echo "install-sys-pkg: the host is expected to provide: $PKGS" >&2
+	echo "install-sys-pkg: user-local fallbacks will be fetched where modules define them." >&2
+	exit 0
 fi
 
 case "$DISTRO" in

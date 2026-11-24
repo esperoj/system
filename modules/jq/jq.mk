@@ -5,5 +5,5 @@ COMMON_PKGS += jq
 
 .PHONY: jq
 jq: sys-pkgs
-	@"$(MODULES_DIR)/jq/install"
+	@install-tool jq gh:jqlang/jq 'jq-{OS}-{ARCH}$$'
 endif

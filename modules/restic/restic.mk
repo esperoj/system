@@ -5,5 +5,5 @@ TERMUX_PKGS += restic
 
 .PHONY: restic
 restic: sys-pkgs
-	@"$(MODULES_DIR)/restic/install"
+	@install-tool restic gh:restic/restic '{OS}_{ARCH}\.bz2$$'
 endif

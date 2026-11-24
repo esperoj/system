@@ -1,15 +1,21 @@
 ifndef MOD_VAULT
 MOD_VAULT := 1
 
-VAULT_MODULES := bin
+include modules/bin/bin.mk
 
-$(foreach d,$(VAULT_MODULES),$(eval include modules/$d/$d.mk))
+# Which vault-repo modules `make vault` applies. Declared once here because
+# every profile wants the same set; a node that differs overrides it per
+# invocation instead:
+#   make vault VAULT_MODULES="ssh git"
+VAULT_MODULES ?= ssh base git rclone
 
 .PHONY: vault
-vault: sys-pkgs $(VAULT_MODULES)
+vault: bin
 	@dir="$$HOME/.vault"
 	if [ -d "$$dir/.git" ]; then
-	    cd "$$dir"
-	    vault apply * 
+	    vault apply $(VAULT_MODULES)
+	else
+	    echo "vault: ~/.vault missing -- skipping vault apply"
+	    echo "vault: bring the vault over (README, Commissioning), then: make vault"
 	fi
 endif

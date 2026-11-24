@@ -4,9 +4,9 @@
 # ~/.local/opt/mame-tools, symlink every shipped binary into ~/.local/bin.
 set -eu
 
-LIB="${LIB_DIR:-$HOME/.local/lib}/sh/os.sh"
+LIB="${LIB_DIR:-$HOME/.local/lib}/sh/lib.sh"
 [ -f "$LIB" ] || {
-	echo "chdman: os.sh not found at $LIB (run 'make base' first)" >&2
+	echo "chdman: lib.sh not found at $LIB (run 'make base' first)" >&2
 	exit 1
 }
 # shellcheck source=/dev/null

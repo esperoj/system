@@ -48,4 +48,4 @@ if [ "$_HOSTNAME" = "bsd.tilde.team" ]; then
     done
 fi
 
-unset _HOSTNAME _py_path _env_dir _f _mod
+unset _HOSTNAME _py_path _env_dir _f

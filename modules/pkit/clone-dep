@@ -1,0 +1,22 @@
+#!/bin/sh
+# clone-dep - clone and set up one pkit data repository.
+# Shared by pkit-meta (records) and pkit-archive (archive); both goals can
+# run in parallel, each cloning its own directory.
+#
+# Requires the vault to be applied first (these repos are private and clone
+# over SSH with the keys the vault provides) — the module makefiles express
+# that with a `vault` prerequisite.
+set -eu
+
+[ $# -eq 1 ] || {
+	echo "usage: clone-dep <repo-name>" >&2
+	exit 1
+}
+
+dir="$HOME/.local/share/pkit/$1"
+
+if [ ! -d "$dir" ]; then
+	git clone "git@github.com:esperoj/$1.git" "$dir"
+fi
+
+make -C "$dir" setup

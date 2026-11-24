@@ -1,64 +1,40 @@
 #!/bin/sh
-# bootstrap - Zero-to-Make minimal host primer
+# bootstrap - zero-to-Make host primer.
+#
+# Runs before anything is installed, so it points PATH and LIB_DIR at the
+# repo copies — the same contract the Makefile uses later — and then
+# delegates every package concern to install-sys-pkg (the single system
+# package installer) and hands off to GNU make.
+#
+# Privilege is install-sys-pkg's problem, stated once there: root or Termux
+# install directly, a sudo binary is used when present, and a rootless host
+# without make fails here with a clear message instead of a cryptic one.
+#
+# Layering (see README, Commissioning):
+#   bootstrap <profile>  -> tools only; no secrets needed or touched
+#   make vault            -> secrets, once the vault has arrived
 set -eu
 
-# Source OS detection engine directly
-if [ -f "./modules/lib/dotfiles/.local/lib/sh/os.sh" ]; then
-	# shellcheck source=/dev/null
-	. "./modules/lib/dotfiles/.local/lib/sh/os.sh"
-elif [ -f "$HOME/.local/lib/sh/os.sh" ]; then
-	# shellcheck source=/dev/null
-	. "$HOME/.local/lib/sh/os.sh"
-else
-	echo "bootstrap: unable to locate os.sh" >&2
-	exit 1
-fi
+cd "$(dirname "$0")"
+export LIB_DIR="$PWD/modules/lib/dotfiles/.local/lib"
+export PATH="$PWD/modules/bin/dotfiles/.local/bin:$PATH"
 
-# GNU Make binary name per platform (FreeBSD ships BSD make as 'make')
-if [ "$DISTRO" = "freebsd" ]; then
+# FreeBSD ships BSD make as 'make'; GNU make is 'gmake'.
+if [ "$(uname -s)" = "FreeBSD" ]; then
 	MAKE_BIN="gmake"
 else
 	MAKE_BIN="make"
 fi
 
-# Install GNU Make if missing
 if ! command -v "$MAKE_BIN" >/dev/null 2>&1; then
-	echo ":: GNU Make not found. Bootstrapping toolchain for [$DISTRO]..."
-
-	SUDO=""
-	if [ "$DISTRO" != "termux" ] && [ "$(id -u)" -ne 0 ]; then
-		if command -v sudo >/dev/null 2>&1; then
-			SUDO="sudo"
-		else
-			echo "Warning: Not root and 'sudo' unavailable. Make installation may fail." >&2
-		fi
-	fi
-
-	case "$DISTRO" in
-	debian)
-		export DEBIAN_FRONTEND=noninteractive
-		$SUDO apt-get update -qq
-		$SUDO apt-get install -y --no-install-recommends make
-		;;
-	termux)
-		pkg update -y
-		pkg install -y make
-		;;
-	alpine)
-		$SUDO apk update -q
-		$SUDO apk add --no-cache make
-		;;
-	freebsd)
-		$SUDO pkg update
-		$SUDO pkg install -y gmake
-		;;
-	*)
-		echo "bootstrap: unsupported distribution '$DISTRO'. Please install GNU make manually." >&2
+	echo ":: $MAKE_BIN not found; asking install-sys-pkg to provide it..."
+	install-sys-pkg "$MAKE_BIN"
+	command -v "$MAKE_BIN" >/dev/null 2>&1 || {
+		echo "bootstrap: the host must provide GNU make ('$MAKE_BIN');" >&2
+		echo "bootstrap: ask the admin, or install it manually and re-run." >&2
 		exit 1
-		;;
-	esac
-	echo "✓ GNU Make successfully installed."
+	}
 fi
 
-echo ":: Bootstrapping complete. Handing off to '$MAKE_BIN $*'..."
+echo ":: bootstrap complete; handing off to '$MAKE_BIN $*'"
 exec "$MAKE_BIN" "$@"

@@ -43,9 +43,9 @@ m() {
 # 5. Fast, Native Bash Git Prompt
 ps1_git() {
   local exit_code=$?
-  local status_color="\[\e[32m\]✔"
+  local status_color="\[\e[32m\]✔\[\e[0m\]"
   if [ $exit_code -ne 0 ]; then
-    status_color="\[\e[31m\]✘"
+    status_color="\[\e[31m\]✘\[\e[0m\]"
   fi
 
   local git_info=""
@@ -80,7 +80,7 @@ ps1_git() {
     fi
   fi
 
-  PS1="${status_color} \[\e[36m\]\w\[\e[0m\]${git_info}\$ "
+  PS1="${status_color} \[\e[34m\]\w\[\e[0m\]${git_info}\$ "
 }
 
 PROMPT_COMMAND=ps1_git

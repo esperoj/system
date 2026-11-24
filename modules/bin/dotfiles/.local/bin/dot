@@ -7,6 +7,24 @@ MODULES_DIR=${MODULES_DIR:-.}
 TARGET=${TARGET:-$HOME}
 STATE_DIR=${XDG_STATE_HOME:-$HOME/.local/state}
 
+# Standalone default: an installed dot is a symlink back into the system
+# repo, so infer MODULES_DIR from our own link target. Via Make (or with
+# MODULES_DIR exported) this never runs. The path may keep ../ segments;
+# the canonicalisation below resolves them.
+if [ "$MODULES_DIR" = "." ] && [ -L "$0" ]; then
+	_self=$(readlink "$0") || _self=
+	case $_self in
+	/*) ;;
+	*) _self=${0%/*}/$_self ;;
+	esac
+	case $_self in
+	*/modules/bin/dotfiles/.local/bin/dot)
+		MODULES_DIR=${_self%/modules/bin/dotfiles/.local/bin/dot}/modules
+		;;
+	esac
+	unset _self
+fi
+
 die() {
 	printf 'dot: %s\n' "$*" >&2
 	exit 1

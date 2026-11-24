@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint (shellcheck + shfmt)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck and shfmt
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+          curl -fsSLo /tmp/shfmt 'https://github.com/mvdan/sh/releases/download/v3.8.0/shfmt_v3.8.0_linux_amd64'
+          sudo install -m0755 /tmp/shfmt /usr/local/bin/shfmt
+      - run: make lint
+
+  debian-image:
+    name: Debian image (docker-base profile)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t system:base .
+      - name: Smoke test
+        run: |
+          docker run --rm system:base bash -lc '
+            command -v dot vault install-sys-pkg fetch-bin install-tool stow
+            dot ls
+          '
+
+  debian-rootless:
+    name: Debian rootless (pubnix simulation)
+    runs-on: ubuntu-latest
+    container: debian:13-slim
+    steps:
+      # The pubnix contract: the host (here: the container admin) provides
+      # the baseline tools; the user has no root and no sudo, so every
+      # system package is skipped loudly and user-local fallbacks must win.
+      - name: Install host-provided tools
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends \
+            git make curl perl ca-certificates unzip xz-utils bzip2
+      - uses: actions/checkout@v4
+      - name: Commission base profile as an unprivileged user
+        run: |
+          useradd -m tester
+          chown -R tester:tester "$PWD"
+          printf '%s\n' \
+            'set -eu' \
+            'cd "$1"' \
+            './bootstrap base' \
+            'make base' \
+            'export PATH="$HOME/.local/bin:$PATH"' \
+            'command -v dot vault jq rclone age 7z stow' \
+            'dot ls' \
+            > /tmp/verify.sh
+          su tester -c "sh /tmp/verify.sh '$PWD'"
+
+  termux:
+    name: Termux (phone profile)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Commission phone profile in Termux
+        run: |
+          docker run --rm -v "$PWD:/src:ro" termux/termux-docker bash -c '
+            mkdir -p ~/projects/system
+            cp -a /src/. ~/projects/system/
+            cd ~/projects/system
+            ./bootstrap phone
+            export PATH="$HOME/.local/bin:$PATH"
+            command -v dot vault jq rclone restic age 7z stow
+            dot ls
+          '

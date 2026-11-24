@@ -10,9 +10,8 @@ STATE_DIR   := $(CURDIR)/.state
 BIN_DIR     := $(MODULES_DIR)/bin/dotfiles/.local/bin
 LIB_DIR     := $(MODULES_DIR)/lib/dotfiles/.local/lib
 PATH        := $(BIN_DIR):$(HOME)/.local/bin:$(PATH)
-SUDO        ?= sudo
 
-export PATH LIB_DIR MODULES_DIR STATE_DIR SUDO
+export PATH LIB_DIR MODULES_DIR STATE_DIR
 
 # --- Shared Recipe Macro ---
 # Stow the current target's module into $TARGET.
@@ -27,25 +26,28 @@ GOALS := $(sort $(if $(MAKECMDGOALS),$(MAKECMDGOALS),help))
  $(foreach g,$(GOALS),$(eval -include modules/$(g)/$(g).mk))
 
 # --- Export Accumulated Sets to Subprocesses ---
-export COMMON_PKGS DEBIAN_PKGS TERMUX_PKGS ALPINE_PKGS FREEBSD_PKGS VAULT_MODULES
+export COMMON_PKGS DEBIAN_PKGS TERMUX_PKGS ALPINE_PKGS FREEBSD_PKGS
 
-# --- System Package Barrier (goal-keyed stamp) ---
-# One stamp per goal set: switching profiles (make desktop -> make emacs)
-# produces a different stamp file and installs that tree's package set.
-# Re-running the same goal set with no module edits is an instant no-op;
-# $(MAKEFILE_LIST) still invalidates on edits to any loaded module.
-# Note: combining goals in one invocation (make desktop lint) keys a
-# different stamp and triggers one harmless extra package refresh.
-empty :=
-space := $(empty) $(empty)
-STAMP := $(STATE_DIR)/sys-pkgs-$(subst $(space),+,$(GOALS)).stamp
+# --- System Package Barrier (package-set-keyed stamp) ---
+# One stamp per exact accumulated package set (all distro lists hashed
+# together after every module has parsed, above). Consequences:
+#   - re-running the same profile with no package changes is a no-op;
+#   - switching or combining goals (make desktop lint) never reinstalls;
+#   - a module edit that changes any package list produces a new key and
+#     installs exactly once;
+#   - switching back to a previous profile reuses its stamp.
+# Old stamps linger in .state/ until `make clean-state`; the directory is
+# disposable at any moment.
+PKG_SET := common=$(COMMON_PKGS) debian=$(DEBIAN_PKGS) termux=$(TERMUX_PKGS) alpine=$(ALPINE_PKGS) freebsd=$(FREEBSD_PKGS)
+PKG_KEY := $(shell printf '%s' '$(PKG_SET)' | cksum | cut -d' ' -f1)
+STAMP := $(STATE_DIR)/sys-pkgs-$(PKG_KEY).stamp
 
-$(STAMP): $(MAKEFILE_LIST)
+$(STAMP):
 	@mkdir -p $(STATE_DIR)
 	install-sys-pkg
 	touch $@
 
-.PHONY: sys-pkgs clean-state help lint fmt review
+.PHONY: sys-pkgs clean-state help lint fmt review setup-remotes
 
 sys-pkgs: $(STAMP)
 
@@ -59,13 +61,17 @@ help:
 	@echo "Usage: make <target>"
 	echo ""
 	echo "Primary targets:"
-	echo "  desktop      Debian desktop node"
-	echo "  phone        Termux mobile node"
+	echo "  base         Core profile: tools only, no secrets (every node)"
+	echo "  desktop      Debian desktop node (base + rest)"
+	echo "  phone        Termux mobile node (base + restic)"
 	echo "  pubnix       Rootless shared UNIX node"
 	echo "  docker-base  Container base image environment"
 	echo ""
+	echo "Secrets (after the vault arrives):"
+	echo "  vault        Apply vault modules (VAULT_MODULES, default ssh base git rclone)"
+	echo ""
 	echo "Submodule targets:"
-	echo "  emacs, git, dev, base, wireproxy, etc."
+	echo "  emacs, git, dev, wireproxy, pkit-meta, ..."
 	echo ""
 	echo "Utility targets:"
 	echo "  help         Show this help"
@@ -116,8 +122,6 @@ review:
 	git show HEAD >> "$$msg_file"
 	model="$${AIDER_MODEL:-gemini/gemini-flash-latest}"
 	aider --model "$$model" --read README.org --message-file "$$msg_file"
-
-.PHONY: setup-remotes
 
 setup-remotes:
 	@git config --remove-section remote.origin

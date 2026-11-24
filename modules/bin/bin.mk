@@ -6,4 +6,5 @@ include modules/stow/stow.mk
 .PHONY: bin
 bin: sys-pkgs stow
 	@$(stow-module)
+	"$(MODULES_DIR)/bin/install"
 endif

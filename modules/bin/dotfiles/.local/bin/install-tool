@@ -1,0 +1,45 @@
+#!/bin/sh
+# install-tool - fetch a user-local tool when the host does not provide it.
+#
+# The PATH check is the single source of truth for "is it installed":
+# privileged nodes get the tool from the system package manager and skip
+# here; rootless hosts get the static binary in ~/.local/bin. One rule,
+# every module, no drift.
+#
+# usage: install-tool <name> <source> [asset-pattern] [archive-binary]
+#   <name>            command to look up on PATH and to install as
+#   <source>          fetch-bin source (URL or gh:owner/repo)
+#   [asset-pattern]   regex selecting the release asset
+#   [archive-binary]  binary name inside the archive, when it differs
+#
+# Placeholders {OS} {ARCH} {XARCH} are substituted from the OS engine
+# (lib.sh): ARCH is Go-style (amd64), XARCH is vendor-style (x64).
+set -eu
+
+[ $# -ge 2 ] || {
+	echo "usage: install-tool <name> <source> [asset-pattern] [archive-binary]" >&2
+	exit 1
+}
+
+LIB="${LIB_DIR:-$HOME/.local/lib}/sh/lib.sh"
+[ -f "$LIB" ] || {
+	echo "install-tool: lib.sh not found at $LIB (run 'make base' first)" >&2
+	exit 1
+}
+# shellcheck source=/dev/null
+. "$LIB"
+
+name="$1"
+src="$2"
+pat="${3:-}"
+bin="${4:-$1}"
+
+if command -v "$name" >/dev/null 2>&1; then
+	echo "✓ $name already installed ($(command -v "$name"))"
+	exit 0
+fi
+
+src=$(printf '%s' "$src" | sed -e "s|{OS}|$OS|g" -e "s|{ARCH}|$ARCH|g" -e "s|{XARCH}|$XARCH|g")
+pat=$(printf '%s' "$pat" | sed -e "s|{OS}|$OS|g" -e "s|{ARCH}|$ARCH|g" -e "s|{XARCH}|$XARCH|g")
+
+fetch-bin "$src" "$pat" "$bin" "$HOME/.local/bin/$name"

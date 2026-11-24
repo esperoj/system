@@ -8,5 +8,5 @@ COMMON_PKGS += age
 .PHONY: age
 age: sys-pkgs stow
 	@$(stow-module)
-	"$(MODULES_DIR)/age/install"
+	install-tool age 'https://dl.filippo.io/age/latest?for={OS}/{ARCH}'
 endif

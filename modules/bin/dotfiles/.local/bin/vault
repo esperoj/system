@@ -62,9 +62,8 @@ cmd_apply() {
 	require_vault
 	lock_perms
 	for m in "$@"; do
-		if [ -d "$VAULT_ROOT/$m" ]; then
-			MODULES_DIR="$VAULT_ROOT" dot apply "$m"
-		fi
+		[ -d "$VAULT_ROOT/$m" ] || die "no vault module: $m"
+		MODULES_DIR="$VAULT_ROOT" dot apply "$m"
 	done
 	lock_perms
 }
@@ -72,9 +71,8 @@ cmd_apply() {
 cmd_remove() {
 	require_vault
 	for m in "$@"; do
-		if [ -d "$VAULT_ROOT/$m" ]; then
-			MODULES_DIR="$VAULT_ROOT" dot remove "$m"
-		fi
+		[ -d "$VAULT_ROOT/$m" ] || die "no vault module: $m"
+		MODULES_DIR="$VAULT_ROOT" dot remove "$m"
 	done
 }
 

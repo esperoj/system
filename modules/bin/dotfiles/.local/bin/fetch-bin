@@ -13,11 +13,11 @@ PATTERN="${2:-}"
 BIN_NAME="${3:-}"
 DEST_PATH="${4:-$HOME/.local/bin}"
 
-# Standard library resolution: $LIB_DIR (set by Make) or the installed path.
-# shellcheck source=/dev/null
-LIB="${LIB_DIR:-$HOME/.local/lib}/sh/fetch.sh"
+# Standard library resolution: $LIB_DIR (set by Make or bootstrap) or the
+# installed path.
+LIB="${LIB_DIR:-$HOME/.local/lib}/sh/lib.sh"
 [ -f "$LIB" ] || {
-	echo "fetch-bin: fetch.sh not found at $LIB (run 'make base' first)" >&2
+	echo "fetch-bin: lib.sh not found at $LIB (run 'make base' first)" >&2
 	exit 1
 }
 # shellcheck source=/dev/null
@@ -29,11 +29,27 @@ trap 'rm -rf "${TMP_DIR}"' EXIT
 echo ":: Resolving $SOURCE..."
 URL=$(fetch_resolve_url "$SOURCE" "$PATTERN")
 
-FILE_NAME=$(basename "${URL%%\?*}")
-ARCHIVE="${TMP_DIR}/${FILE_NAME}"
-
 echo ":: Downloading $URL..."
-fetch_download "$URL" "$ARCHIVE"
+fetch_download "$URL" "${TMP_DIR}/download"
+
+# Name the archive. The requested basename wins when it already looks like
+# a file; a generic one ("latest" from dl.filippo.io) hides the real asset
+# name behind a redirect, so probe it with HEAD once.
+FILE_NAME=$(basename "${URL%%\?*}")
+case "$FILE_NAME" in
+*.tar.gz | *.tgz | *.tar.xz | *.tar.zst | *.tar.bz2 | *.zip | *.bz2 | *.gz) ;;
+*)
+	_redirect=$(curl -fsSI -o /dev/null -w '%{redirect_url}' "$URL" 2>/dev/null || true)
+	_candidate=$(basename "${_redirect%%\?*}")
+	case "$_candidate" in
+	*.tar.gz | *.tgz | *.tar.xz | *.tar.zst | *.tar.bz2 | *.zip | *.bz2 | *.gz)
+		FILE_NAME="$_candidate"
+		;;
+	esac
+	;;
+esac
+ARCHIVE="${TMP_DIR}/${FILE_NAME}"
+mv -f "${TMP_DIR}/download" "$ARCHIVE"
 
 EXTRACT_DIR="${TMP_DIR}/extracted"
 

@@ -5,5 +5,5 @@ TERMUX_PKGS += rclone
 
 .PHONY: rclone
 rclone: sys-pkgs
-	@"$(MODULES_DIR)/rclone/install"
+	@install-tool rclone gh:rclone/rclone '{OS}-{ARCH}\.zip$$'
 endif

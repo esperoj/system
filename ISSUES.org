@@ -1,3 +1,26 @@
-* TODO add libdir to env and no need to duplicate it again in scripting
-* TODO do I need to make rclone and such depend on base to have lib and bin or just use raw like current approachs?
-* TODO cant ran pkit-meta and pkit-archive at same time
+#+TITLE: Project Issues & Tasks
+#+AUTHOR: Esperoj
+#+STARTUP: showeverything
+#+FILETAGS: :system:
+
+# Custom TODO states for issue tracking:
+# OPEN states: TODO, IN_PROGRESS, WAITING
+# CLOSED states: DONE, WONTFIX, DUPLICATE
+#+TYP_TODO: TODO(t) IN_PROGRESS(i) WAITING(w) | DONE(d) WONTFIX(x) DUPLICATE(u)
+
+* DONE Add libdir to env and stop duplicating library resolution in scripts
+  Single shared library (~lib/sh/lib.sh~, merged from os.sh + fetch.sh), one
+  two-location contract ($LIB_DIR or ~/.local/lib), sourced once per script.
+
+* DONE Make rclone and friends depend on base for lib and bin?
+  Answer: no dependency needed. Make and bootstrap both prepend the repo's
+  ~modules/bin/dotfiles/.local/bin~ and ~lib~ to PATH/LIB_DIR, so module
+  installers find the CLIs whether or not anything is stowed yet.
+
+* DONE Run pkit-meta and pkit-archive at the same time
+  Both goals now share one ~pkit/clone-dep~ script, each cloning its own
+  directory; shared prerequisites (pkit, vault) are built once by make.
+
+* TODO Create an issues mode for Emacs
+
+* TODO Remove complexity from vault, especially backup features

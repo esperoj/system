@@ -1,6 +1,55 @@
 #!/bin/sh
-# fetch.sh - Shared POSIX engine for binary resolution, downloading, and unpacking
+# lib.sh - the system's single shared shell library.
+# Resolved through the two-location contract: $LIB_DIR (set by Make or
+# bootstrap, pointing at the repo) or ~/.local/lib (installed, standalone).
+# Sections: OS engine (exports OS DISTRO ARCH XARCH) and fetch engine
+# (URL resolution, download, extraction — used by fetch-bin).
 set -eu
+
+# --- OS engine ---------------------------------------------------------
+_uname_s=$(uname -s)
+_uname_m=$(uname -m)
+
+case "$_uname_s" in
+Linux)
+	if [ -d /data/data/com.termux ] || command -v termux-info >/dev/null 2>&1; then
+		OS="android"
+		DISTRO="termux"
+	elif [ -f /etc/alpine-release ]; then
+		OS="linux"
+		DISTRO="alpine"
+	elif [ -f /etc/debian_version ]; then
+		OS="linux"
+		DISTRO="debian"
+	else
+		OS="linux"
+		DISTRO="unknown"
+	fi
+	;;
+FreeBSD)
+	OS="freebsd"
+	DISTRO="freebsd"
+	;;
+*)
+	OS="unknown"
+	DISTRO="unknown"
+	;;
+esac
+
+# ARCH: Go/Debian-style names. XARCH: the vendor style some release
+# archives use instead (7zip names amd64 "x64").
+case "$_uname_m" in
+x86_64) ARCH="amd64" XARCH="x64" ;;
+aarch64 | arm64) ARCH="arm64" XARCH="arm64" ;;
+armv7l) ARCH="armhf" XARCH="arm" ;;
+i386 | i686) ARCH="386" XARCH="386" ;;
+*) ARCH="$_uname_m" XARCH="$_uname_m" ;;
+esac
+
+export OS DISTRO ARCH XARCH
+unset _uname_s _uname_m
+
+# --- Fetch engine ------------------------------------------------------
 
 # Resolve input to a concrete download URL
 # Supports:
