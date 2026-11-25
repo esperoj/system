@@ -79,7 +79,7 @@ jobs:
 
   termux:
     name: Termux (phone profile)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-arm
     steps:
       - uses: actions/checkout@main
       - name: Commission phone profile in Termux
