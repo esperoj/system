@@ -5,10 +5,11 @@ MOD_DOCKER_BASE := 1
 export MACHINE_TYPE := docker-base
 
 DOCKER_BASE_MODULES := base wireproxy
-$(foreach d,$(DOCKER_BASE_MODULES),$(eval include modules/$d/$d.mk))
+$(foreach d,$(DOCKER_BASE_MODULES),$(call include-module,$d))
 
 .PHONY: docker-base
 docker-base: sys-pkgs $(DOCKER_BASE_MODULES)
 	@$(stow-module)
 	echo "✓ Docker base profile applied successfully."
+	@$(mark-applied)
 endif

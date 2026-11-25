@@ -6,19 +6,32 @@
 # completion (which parses the root Makefile only) cannot see them. This
 # one greps the static rule definitions across the root Makefile and every
 # module makefile instead, yielding the complete set: profiles, modules
-# and their -update / -uninstall verbs.
+# and their -update / -uninstall verbs (the generic verbs exist for every
+# module goal, so they are synthesised for each module directory).
 #
 # Installed user-locally under ~/.local/share/bash-completion/completions,
 # which bash-completion searches before the system dirs: it wins over the
 # distro's own make completion. Outside this repository it stays quiet and
 # lets readline fall back to its default completion.
 #
-# Works wherever bash runs: Debian desktop, Termux phone, rootless pubnix
-# (with bash-completion, or sourced directly by .bashrc without it).
+# Loaded on every node type — Debian desktop, Termux phone, rootless
+# pubnix — because .profile sources this file for interactive bash
+# sessions with or without the bash-completion package.
+#
+# Also registered for m, the repo-aware make wrapper defined in .bashrc.
 
 _system_make_targets() {
-	grep -hE '^[a-zA-Z0-9][a-zA-Z0-9_.-]*:' Makefile modules/*/*.mk 2>/dev/null |
-		sed 's/:.*//' | LC_ALL=C sort -u
+	local targets=() t m
+	readarray -t t < <(grep -hE '^[a-zA-Z0-9][a-zA-Z0-9_.-]*:' Makefile modules/*/*.mk 2>/dev/null |
+		sed 's/:.*//' | LC_ALL=C sort -u)
+	for m in "${t[@]}"; do
+		targets+=("$m")
+		# Every module goal carries the generic verbs.
+		if [ -d "modules/$m" ]; then
+			targets+=("$m-update" "$m-uninstall")
+		fi
+	done
+	printf '%s\n' "${targets[@]}" | LC_ALL=C sort -u
 }
 
 _make() {
@@ -29,4 +42,4 @@ _make() {
 	readarray -t COMPREPLY < <(compgen -W "$(_system_make_targets)" -- "$cur")
 }
 
-complete -F _make make
+complete -F _make make m

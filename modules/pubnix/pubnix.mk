@@ -7,10 +7,11 @@ MOD_PUBNIX := 1
 export MACHINE_TYPE := pubnix
 
 PUBNIX_MODULES := base dev crontab wireproxy
-$(foreach d,$(PUBNIX_MODULES),$(eval include modules/$d/$d.mk))
+$(foreach d,$(PUBNIX_MODULES),$(call include-module,$d))
 
 .PHONY: pubnix
 pubnix: sys-pkgs $(PUBNIX_MODULES)
 	@$(stow-module)
 	echo "✓ Pubnix profile applied successfully."
+	@$(mark-applied)
 endif

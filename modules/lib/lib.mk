@@ -6,4 +6,5 @@ include modules/stow/stow.mk
 .PHONY: lib
 lib: sys-pkgs stow
 	@$(stow-module)
+	@$(mark-applied)
 endif

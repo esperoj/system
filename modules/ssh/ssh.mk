@@ -11,4 +11,5 @@ TERMUX_PKGS += openssh
 ssh: sys-pkgs stow
 	@$(stow-module)
 	chmod 700 ~/.ssh
+	@$(mark-applied)
 endif

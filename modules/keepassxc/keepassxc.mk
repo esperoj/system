@@ -5,4 +5,5 @@ DEBIAN_PKGS += keepassxc
 
 .PHONY: keepassxc
 keepassxc: sys-pkgs
+	@$(mark-applied)
 endif

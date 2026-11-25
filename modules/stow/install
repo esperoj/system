@@ -1,14 +1,44 @@
 #!/bin/sh
+# stow - GNU Stow via the sys-pkgs barrier when privileged; source build
+# into ~/.local for rootless hosts.
+#
+# usage: modules/stow/install [--update]
+#   (no flag)   install if missing; skip loudly when stow is on PATH
+#   --update    rebuild a source-built copy when the pinned STOW_VER
+#               differs from the recorded build (the pinned tarball URL
+#               is the identity; the comparison is offline)
 set -eu
 
-# 1. If stow is already installed via system package manager, exit immediately
+UPDATE=0
+if [ "${1:-}" = "--update" ]; then
+	UPDATE=1
+	shift
+fi
+
+STOW_VER="2.4.1"
+URL="https://ftp.gnu.org/gnu/stow/stow-${STOW_VER}.tar.gz"
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/system/tools/stow"
+
+# 1. If stow is already installed via system package manager, exit immediately.
+#    A copy outside ~/.local/bin belongs to the host, not to us: report it.
 if command -v stow >/dev/null 2>&1; then
-	echo "✓ stow is already installed."
-	exit 0
+	where=$(command -v stow)
+	if [ "$UPDATE" -eq 0 ] || [ "$where" != "$HOME/.local/bin/stow" ]; then
+		echo "✓ stow is already installed."
+		[ "$UPDATE" -eq 0 ] || echo "stow: host-provided ($where); update it with the system package manager"
+		exit 0
+	fi
+	recorded=""
+	if [ -f "$STATE/url" ]; then recorded=$(cat "$STATE/url"); fi
+	if [ "$recorded" = "$URL" ]; then
+		echo "✓ stow already latest (pinned ${STOW_VER})"
+		exit 0
+	fi
+	echo ":: stow: ${recorded##*/} -> stow-${STOW_VER}.tar.gz"
 fi
 
 # 2. Rootless Fallback for Pubnix / Unprivileged environments
-echo ":: stow not found. Installing standalone GNU Stow to $HOME/.local..."
+echo ":: Building standalone GNU Stow ${STOW_VER} into $HOME/.local..."
 
 if ! command -v perl >/dev/null 2>&1; then
 	echo "Error: perl is required to run GNU Stow on rootless systems." >&2
@@ -18,9 +48,6 @@ fi
 TMP_DIR=$(mktemp -d -t stow-install-XXXXXX)
 trap 'rm -rf "${TMP_DIR}"' EXIT
 
-STOW_VER="2.4.1"
-URL="https://ftp.gnu.org/gnu/stow/stow-${STOW_VER}.tar.gz"
-
 echo ":: Downloading GNU Stow ${STOW_VER}..."
 curl -fsSL "$URL" | tar -xz -C "$TMP_DIR"
 
@@ -29,5 +56,8 @@ cd "$TMP_DIR/stow-${STOW_VER}"
 echo ":: Configuring and installing to $HOME/.local..."
 ./configure --prefix="$HOME/.local" >/dev/null
 make install >/dev/null
+
+mkdir -p "$STATE"
+printf '%s\n' "$URL" >"$STATE/url"
 
 echo "✓ GNU Stow installed successfully to $HOME/.local/bin/stow"

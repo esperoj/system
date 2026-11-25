@@ -2,7 +2,18 @@
 # chdman - mame-tools via the sys-pkgs barrier when privileged (root/sudo,
 # non-pubnix). Rootless fallback: apt-get download the .deb, extract to
 # ~/.local/opt/mame-tools, symlink every shipped binary into ~/.local/bin.
+#
+# usage: modules/chdman/install [--update]
+#   (no flag)   install if missing; skip loudly when chdman is on PATH
+#   --update    refresh a rootless install; the download is skipped when
+#               the host's candidate mame-tools version is unchanged
 set -eu
+
+UPDATE=0
+if [ "${1:-}" = "--update" ]; then
+	UPDATE=1
+	shift
+fi
 
 LIB="${LIB_DIR:-$HOME/.local/lib}/sh/lib.sh"
 [ -f "$LIB" ] || {
@@ -12,10 +23,27 @@ LIB="${LIB_DIR:-$HOME/.local/lib}/sh/lib.sh"
 # shellcheck source=/dev/null
 . "$LIB"
 
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/system/tools/chdman"
+
 # Same skip contract as 7zip: already on PATH (system or user-local) -> no-op.
+# A copy outside ~/.local/bin belongs to the host, not to us: report it.
+# --update compares the host's candidate mame-tools version with the one
+# the extracted tree came from (apt-cache, no download).
 if command -v chdman >/dev/null 2>&1; then
-	echo "✓ chdman is already installed."
-	exit 0
+	where=$(command -v chdman)
+	if [ "$UPDATE" -eq 0 ] || [ "$where" != "$HOME/.local/bin/chdman" ]; then
+		echo "✓ chdman is already installed."
+		[ "$UPDATE" -eq 0 ] || echo "chdman: host-provided ($where); update it with the system package manager"
+		exit 0
+	fi
+	recorded=""
+	if [ -f "$STATE/version" ]; then recorded=$(cat "$STATE/version"); fi
+	candidate=$(apt-cache policy mame-tools 2>/dev/null | sed -n 's/^ *Candidate: //p' | tr -d ' ')
+	if [ -n "$candidate" ] && [ "$recorded" = "$candidate" ]; then
+		echo "✓ chdman already latest (mame-tools $candidate)"
+		exit 0
+	fi
+	echo ":: chdman: mame-tools ${recorded:-(no record)} -> ${candidate:-unknown}"
 fi
 
 # Reached only when the barrier could not install (rootless pubnix).
@@ -68,6 +96,13 @@ done
 if command -v ldd >/dev/null 2>&1 && ldd "$BIN_DIR/chdman" 2>/dev/null | grep -q 'not found'; then
 	echo "chdman: warning — missing shared libraries on this host:" >&2
 	ldd "$BIN_DIR/chdman" 2>/dev/null | grep 'not found' >&2
+fi
+
+# Record the version the .deb carried, for --update comparisons.
+deb_version=$(printf '%s\n' "${DEB##*/}" | sed -n 's/^mame-tools_\([^_]*\)_.*$/\1/p')
+if [ -n "$deb_version" ]; then
+	mkdir -p "$STATE"
+	printf '%s\n' "$deb_version" >"$STATE/version"
 fi
 
 echo "✓ chdman installed to $BIN_DIR/chdman (rootless mame-tools)"

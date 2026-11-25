@@ -6,4 +6,5 @@ include modules/stow/stow.mk
 .PHONY: env
 env: sys-pkgs stow
 	@$(stow-module)
+	@$(mark-applied)
 endif

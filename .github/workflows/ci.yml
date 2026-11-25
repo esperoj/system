@@ -70,6 +70,10 @@ jobs:
             '# find it in ~/.config/env/pubnix.env, stowed a moment ago.' \
             'out=$(install-sys-pkg ripgrep 2>&1) || { printf "%s\n" "$out"; exit 1; }' \
             'printf "%s\n" "$out" | grep -q "MACHINE_TYPE=pubnix" || { printf "%s\n" "$out"; exit 1; }' \
+            '# Update verbs: every applied module re-derives with skips —' \
+            '# fetched tools compare recorded releases (already latest) and' \
+            '# nothing re-downloads, exits 0.' \
+            'make update' \
             > /tmp/verify.sh
           su tester -c "sh /tmp/verify.sh '$PWD'"
 
@@ -102,4 +106,5 @@ jobs:
             export PATH="$HOME/.local/bin:$PATH"
             command -v dot vault jq rclone restic age 7z stow
             dot ls
+            make update
           '

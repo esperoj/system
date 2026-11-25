@@ -5,10 +5,11 @@ MOD_PHONE := 1
 export MACHINE_TYPE := phone
 
 PHONE_MODULES := base restic
-$(foreach d,$(PHONE_MODULES),$(eval include modules/$d/$d.mk))
+$(foreach d,$(PHONE_MODULES),$(call include-module,$d))
 
 .PHONY: phone
 phone: sys-pkgs $(PHONE_MODULES)
 	@$(stow-module)
 	echo "✓ Phone profile applied successfully."
+	@$(mark-applied)
 endif

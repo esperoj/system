@@ -13,17 +13,36 @@ PATH        := $(BIN_DIR):$(HOME)/.local/bin:$(PATH)
 
 export PATH LIB_DIR MODULES_DIR STATE_DIR
 
-# --- Shared Recipe Macro ---
+# --- Shared Recipe Macros ---
 # Stow the current target's module into $TARGET.
 # Recursive '=' on purpose: $@ must expand at recipe time, not definition time.
 stow-module = MODULES_DIR="$(MODULES_DIR)/$@" dot apply dotfiles
+# Record that the current target's module ran to completion: the membership
+# line that scopes `make update` / `make uninstall` (nothing more). Stamps are
+# disposable with the rest of .state/; re-running a profile rebuilds them.
+mark-applied = mkdir -p "$(STATE_DIR)/modules" && touch "$(STATE_DIR)/modules/$@"
+
+# --- The One Include Idiom ---
+# Every module inclusion — goal-driven here, profile-driven in the module
+# makefiles — goes through include-module, which reads the file once and
+# records it in MODULE_SEEN so no module is read twice per run. That is a
+# correctness rule, not an optimization: make's conditional scanner cannot
+# skip a guarded file whose recipes open lines with shell conditional words
+# (if/else/fi) — it reads the `else` as its own. Keep such logic in module
+# scripts; vault.mk's if/else recipe stays single-read behind this macro.
+MODULE_SEEN :=
+include-module = $(eval MODULE_SEEN += $1)$(eval -include modules/$1/$1.mk)
 
 # --- Goal-Driven Dynamic Inclusion ---
 # $(sort) also removes duplicates, so goals are unique + sorted.
-# modules/<goal>/<goal>.mk is included per goal; submodules recursively
-# include their own dependencies behind ifndef guards.
-GOALS := $(sort $(if $(MAKECMDGOALS),$(MAKECMDGOALS),help))
- $(foreach g,$(GOALS),$(eval -include modules/$(g)/$(g).mk))
+# Verb goals are normalised to their module first: `make rclone-update`
+# loads rclone.mk, where the explicit verb rule lives beside the install
+# rule. The global verbs (update, uninstall) load every module recorded as
+# applied (.state/modules/*), so each one's verb rules are visible too.
+APPLIED := $(notdir $(wildcard $(STATE_DIR)/modules/*))
+GOALS := $(sort $(if $(MAKECMDGOALS),$(MAKECMDGOALS),help) $(if $(filter update uninstall,$(MAKECMDGOALS)),$(APPLIED)))
+GOALS := $(sort $(patsubst %-uninstall,%,$(patsubst %-update,%,$(GOALS))))
+ $(foreach g,$(GOALS),$(if $(filter $(g),$(MODULE_SEEN)),,$(call include-module,$(g))))
 
 # --- Export Accumulated Sets to Subprocesses ---
 export COMMON_PKGS DEBIAN_PKGS TERMUX_PKGS ALPINE_PKGS FREEBSD_PKGS
@@ -47,15 +66,51 @@ $(STAMP):
 	install-sys-pkg
 	touch $@
 
-.PHONY: sys-pkgs clean-state help lint fmt review setup-remotes
+.PHONY: sys-pkgs clean-state help lint fmt review setup-remotes update uninstall
 
 sys-pkgs: $(STAMP)
 
 clean-state:
 	rm -rf $(STATE_DIR)
 
+# --- Module Verbs: <module>-update / <module>-uninstall ---
+# Two generic pattern rules give every module goal its verbs; a module that
+# needs more declares an explicit rule, which always beats the pattern (the
+# same precedence make uses everywhere). Defaults, honestly minimal:
+#
+#   %-update      re-apply the goal: stow relinks whatever `git pull` brought,
+#                 the package barrier and PATH guards skip finished work.
+#   %-uninstall   unstow the module's dotfiles, drop fetched tools that
+#                 install-tool recorded, forget the applied stamp. System
+#                 packages are the host's, and are reported, not removed.
+%-update: %
+	@echo ":: $* re-applied"
+%-uninstall:
+	@if [ -d "$(MODULES_DIR)/$*/dotfiles" ]; then
+	    MODULES_DIR="$(MODULES_DIR)/$*" dot remove dotfiles
+	fi
+	if [ -d "$${XDG_STATE_HOME:-$$HOME/.local/state}/system/tools/$*" ]; then
+	    uninstall-tool "$*"
+	fi
+	rm -f "$(STATE_DIR)/modules/$*"
+	echo ":: $* uninstalled (system packages, if any, remain the host's)"
+
+# `make update`: every module recorded applied, in one DAG, one process.
+# Fetched tools re-download only when upstream actually changed; everything
+# else re-applies with skips. An empty record set (fresh clone, clean-state)
+# says so loudly instead of guessing.
+update: $(APPLIED:%=%-update)
+	@test -n "$(APPLIED)" || echo "update: nothing recorded in $(STATE_DIR)/modules/ — run a profile first, then re-run"
+
+# `make uninstall` is deliberately not a bulk verb: removal should name its
+# module. Point at the per-module verbs and list what this node recorded.
+uninstall:
+	@echo "Usage: make <module>-uninstall   (e.g. make rclone-uninstall make shell-uninstall)"
+	echo "Bulk removal is deliberate: it would unlink user-local files sight unseen."
+	echo "Modules recorded applied on this node: $(APPLIED)"
+
 # --- Shared Shell Script Finder ---
-FIND_SHELL = find bootstrap modules -type f \( -name '*.sh' -o -name 'configure' -o -name 'install' -o -name 'setup' -o -name 'bootstrap' -o -path '*/.local/bin/*' -o -path '*/.local/lib/sh/*' \) -print0
+FIND_SHELL = find bootstrap modules -type f \( -name '*.sh' -o -name 'configure' -o -name 'install' -o -name 'uninstall' -o -name 'setup' -o -name 'bootstrap' -o -path '*/.local/bin/*' -o -path '*/.local/lib/sh/*' \) -print0
 
 help:
 	@echo "Usage: make <target>"
@@ -79,6 +134,12 @@ help:
 	echo "  fmt          Format shell scripts in-place using shfmt"
 	echo "  review       Run Aider review on the latest commit"
 	echo "  clean-state  Wipe .state/ cache to force package reinstall"
+	echo ""
+	echo "Module verbs (every module goal has them):"
+	echo "  <m>-update    refresh one module, e.g. make rclone-update"
+	echo "  <m>-uninstall remove one module, e.g. make rclone-uninstall"
+	echo "  update        refresh every module recorded applied (fetched"
+	echo "                tools re-download only when upstream changed)"
 
 lint:
 	@rc=0

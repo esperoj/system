@@ -10,4 +10,5 @@ TERMUX_PKGS += clang make python nodejs-lts
 .PHONY: dev
 dev: sys-pkgs stow
 	@$(stow-module)
+	@$(mark-applied)
 endif

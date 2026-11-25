@@ -1,0 +1,22 @@
+#!/bin/sh
+# chdman uninstall - the mirror of modules/chdman/install: drops the
+# extracted mame-tools tree and the links it created into ~/.local/bin.
+# A host-provided chdman (mame-tools from the package manager) is never
+# touched; the generic verb already reports that instead.
+set -eu
+
+PREFIX="$HOME/.local"
+OPT_DIR="$PREFIX/opt/mame-tools"
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/system/tools/chdman"
+
+if [ -d "$OPT_DIR" ]; then
+	for bin in "$OPT_DIR"/usr/bin/*; do
+		[ -f "$bin" ] || continue
+		rm -f "$PREFIX/bin/${bin##*/}"
+	done
+	rm -rf "$OPT_DIR"
+	echo "✓ chdman removed from $PREFIX"
+else
+	echo "✓ chdman not installed (no $OPT_DIR)"
+fi
+rm -rf "$STATE"

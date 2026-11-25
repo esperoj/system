@@ -8,4 +8,5 @@ COMMON_PKGS += bash
 .PHONY: shell
 shell: sys-pkgs stow
 	@$(stow-module)
+	@$(mark-applied)
 endif

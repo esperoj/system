@@ -6,4 +6,5 @@ TERMUX_PKGS += runit
 
 .PHONY: runit
 runit: sys-pkgs
+	@$(mark-applied)
 endif

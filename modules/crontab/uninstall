@@ -1,0 +1,15 @@
+#!/bin/sh
+# crontab uninstall - the mirror of the crontab module: unstow the module's
+# dotfiles, then remove the installed crontab -- but only while it is
+# still ours; a crontab that differs is left alone and said so.
+set -eu
+
+MODULES_DIR="${MODULES_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}/modules"
+file="$MODULES_DIR/crontab/dotfiles/.config/crontab/crontab"
+
+if [ "$(crontab -l 2>/dev/null || true)" = "$(cat "$file")" ]; then
+	crontab -r
+	echo ":: crontab removed"
+else
+	echo ":: crontab left alone (differs from the module's file or is already empty)"
+fi

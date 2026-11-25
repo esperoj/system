@@ -48,7 +48,7 @@ Avoided: configuration frameworks, dotfile DSLs, state daemons, formats needing 
 ** Axiom 2 — Anti-Complexity
 
 · No external state database. State is the filesystem plus make's in-memory DAG.
-· Single-phase evaluation. Nothing persists except ~.state/~, disposable at any moment (~make clean-state~).
+· Single-phase evaluation. Nothing persists except two disposable caches: ~.state/~ (package stamps, applied-module stamps) and the release records under ~~/local/state/system/~; deleting either only costs re-work the next run already knows how to skip.
 · Each dependency declared exactly once. A profile's module list drives loading and build order.
 
 ** Axiom 3 — Structural Safety
@@ -126,13 +126,36 @@ Package installation is gated by one stamp per exact accumulated package set: ~.
 
 Old stamps linger in ~.state/~ until ~make clean-state~; the directory is disposable at any moment.
 
-** Shared recipe macro
+** Shared recipe macros
 
-Stowing a module is one line in every module makefile:
+Both macros are recursive ~=~ on purpose — ~$@~ must expand at recipe time, not definition time. Stowing a module is one line in every module makefile:
 
 #+begin_src makefile
 stow-module = MODULES_DIR="$(MODULES_DIR)/$@" dot apply dotfiles
 #+end_src
+
+Recording that the module ran is one line more (the membership that scopes `make update` / `make uninstall`):
+
+#+begin_src makefile
+mark-applied = mkdir -p "$(STATE_DIR)/modules" && touch "$(STATE_DIR)/modules/$@"
+#+end_src
+
+· Update and uninstall verbs
+
+Every module goal carries three verbs, most of them generic pattern rules in the root Makefile (a module declares an explicit rule only where it needs more — make's explicit-beats-pattern precedence, no new machinery):
+
+| Verb                    | Meaning                                                                                     |
+|-------------------------+---------------------------------------------------------------------------------------|
+| ~make <m>~              | install; the second run skips finished work (package barrier, PATH guards)            |
+| ~make <m>-update~       | refresh: fetched tools re-download only when the upstream release actually changed    |
+| ~make <m>-uninstall~    | unstow dotfiles, drop tools install-tool fetched, forget the applied stamp              |
+| ~make update~           | the ~-update~ verb of every module recorded applied, one DAG, one process               |
+
+The applied set is not a database: it is ~.state/modules/<name>~ stamps touched by each goal's ~$(mark-applied)~ line, disposable with the rest of ~.state/~. A wiped record just means ~make update~ says so loudly and a profile run re-records. The release records live as ~~/local/state/system/tools/<name>/url~ (XDG-aware) and are written by the fetchers themselves (install-tool, the anki/chdman/stow install scripts). For ~gh:~ sources the resolved URL embeds the tag, so "already latest" is an exact string comparison with zero probes; floating ~latest~ links are compared by the asset their redirects end at — one HEAD, never a re-download. A tool the host provides (everything outside ~~/local/bin~) is reported, never fetched over: on Termux ~make rclone-update~ says so instead of shadowing the ~pkg~ copy.
+
+Default verbs, honestly minimal: package-only modules (firefox, keepassxc, …) re-run their goal on ~-update~ (the barrier no-ops) and report ~nothing user-local to remove~ on ~-uninstall~ — system packages are the host's to upgrade and remove. Stow modules re-apply, which is also how a ~git pull~ propagates new dotfiles. There is deliberately no bulk ~make uninstall~: removal names its module.
+
+Uninstalling a module others build on (~stow~) simply breaks them loudly; uninstall dependent modules first.
 
 · Package delivery — one privilege model, one tool gate
 
@@ -158,10 +181,12 @@ Machine identity is the one variable worth exporting: ~MACHINE_TYPE~ (~pubnix~, 
 
 ** install-tool (the apt-or-.local gate)
 
-Every module tool goes through one gate — ~install-tool <name> <source> [asset-pattern] [archive-binary]~ — whose PATH check is the single source of truth for "is it installed":
+Every module tool goes through one gate — ~install-tool [--update] <name> <source> [asset-pattern] [archive-binary]~ — whose PATH check is the single source of truth for "is it installed":
 
 1. Already on PATH → skip (it came from apt, pkg, or a previous fetch — all the same).
 2. Otherwise fetch the static binary into =~/.local/bin= via ~fetch-bin~.
+
+~--update~ refreshes an already-fetched tool: the latest release is compared with the recorded one (~/.local/state/system/tools/<name>/url) and the binary re-fetched only when the release actually changed — "already latest" is not a download. Host-provided copies are reported, never fetched over.
 
 So the same one-line rule covers every node type: Debian installs ~jq~ through apt and skips the fetch; Termux installs it through ~pkg~ and skips; a pubnix fetches it. Patterns may use placeholders substituted from the OS engine — ~{OS}~, ~{ARCH}~ (Go-style ~amd64~), ~{XARCH}~ (vendor-style ~x64~, as 7zip names it). On Termux ~{OS}~ substitutes ~linux~, because upstream archives never publish "android" assets — their static linux builds are what run there:
 
@@ -290,7 +315,7 @@ This is why ~docker-base~ (and any profile) is secret-optional: in a disposable 
 └── .state/                    # ephemeral stamps (git-ignored, disposable)
 #+end_example
 
-Each module: ~<name>.mk~ (rules, packages, include guard), ~dotfiles/~ (stowed files), optional ~install~ (only for tools needing more than a fetch).
+Each module: ~<name>.mk~ (rules, packages, verbs, include guard), ~dotfiles/~ (stowed files), optional ~install~ (only for tools needing more than a fetch), optional ~uninstall~ (the install's mirror).
 
 · Commissioning a node
 
@@ -451,11 +476,14 @@ make -n desktop                 # inspect the graph without running it
 cd ~/projects/system
 git pull --rebase
 make desktop                    # or phone / pubnix / docker-base
+make update                     # refresh tools + re-apply, skips intact
 dot prune                       # after pulls that removed files
 vault sync                      # honest exit codes
 #+end_src
 
-Isolated modules: ~make emacs~, ~make git~, ~make dev~. Ad-hoc packages: ~install-sys-pkg ripgrep~. Ad-hoc tools: ~install-tool fzf gh:junegunn/fzf 'fzf-{OS}-{ARCH}$$'~. Force full package re-evaluation: ~make clean-state && make <profile>~ (switching profiles does not need clean-state). Inspect before running: ~make -n <goal>~.
+Tab completion for make targets — and for ~m~, the repo-aware wrapper in .bashrc — follows the shell module everywhere: .profile sources the completion for interactive bash, with or without the bash-completion package (Debian desktop, Termux phone, rootless pubnix), and it stays quiet in any other directory.
+
+Isolated modules: ~make emacs~, ~make git~, ~make dev~. Refresh one module: ~make rclone-update~; refresh everything recorded applied: ~make update~ (fetched tools re-download only when upstream changed; everything else re-applies with skips). Remove one module: ~make restic-uninstall~. Ad-hoc packages: ~install-sys-pkg ripgrep~. Ad-hoc tools: ~install-tool fzf gh:junegunn/fzf 'fzf-{OS}-{ARCH}$$'~. Force full package re-evaluation: ~make clean-state && make <profile>~ (switching profiles does not need clean-state; it also forgets the applied set, which a profile run re-records). Inspect before running: ~make -n <goal>~.
 
 · Continuous integration
 
@@ -465,8 +493,8 @@ GitHub Actions (~.github/workflows/ci.yml~) exercises the system on every push a
 |-----------------+---------------------------------------------------------------------|
 | ~lint~          | shellcheck + shfmt pass on every script                             |
 | ~debian-image~  | ~docker build~ of the Dockerfile; CLIs and ~dot ls~ inside the image |
-| ~debian-rootless~ | a pubnix simulation: unprivileged user, ~sudo~ and ~cron~ present but never reached — ~MACHINE_TYPE=pubnix~ loud skip (goal export, then env file), user-local fetch fallbacks, standalone ~install-sys-pkg~ verified rootless |
-| ~termux~        | the full phone profile commissioned inside ~termux/termux-docker~ (with ~termux-exec~ preloaded, as on a device), then a no-op re-run |
+| ~debian-rootless~ | a pubnix simulation: unprivileged user, ~sudo~ and ~cron~ present but never reached — ~MACHINE_TYPE=pubnix~ loud skip (goal export, then env file), user-local fetch fallbacks, standalone ~install-sys-pkg~ verified rootless, then ~make update~ proving the no-op path (records compared, nothing re-downloaded) |
+| ~termux~        | the full phone profile commissioned inside ~termux/termux-docker~ (with ~termux-exec~ preloaded, as on a device), then a no-op re-run and ~make update~ |
 
 Image publishing to the codefloe registry stays in ~.crow/publish.yaml~ (cron/manual).
 

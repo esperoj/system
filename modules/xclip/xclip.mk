@@ -5,4 +5,5 @@ DEBIAN_PKGS += xclip
 
 .PHONY: xclip
 xclip: sys-pkgs
+	@$(mark-applied)
 endif

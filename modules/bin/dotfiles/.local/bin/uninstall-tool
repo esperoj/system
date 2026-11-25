@@ -4,7 +4,8 @@
 # outside ~/.local/bin) are never touched, only reported.
 #
 # Deliberately independent of lib.sh, so it keeps working after the lib
-# module itself has been unstowed.
+# module itself has been unstowed. Also drops the tool's release record
+# under the state dir install-tool keeps (~/.local/state/system/tools).
 #
 # usage: uninstall-tool <name>
 set -eu
@@ -19,7 +20,8 @@ bin="$HOME/.local/bin/$name"
 state="${XDG_STATE_HOME:-$HOME/.local/state}/system/tools/$name"
 
 if [ -e "$bin" ] || [ -L "$bin" ]; then
-	rm -f "$bin" "$state"
+	rm -f "$bin"
+	rm -rf "$state"
 	echo "✓ removed $bin"
 elif command -v "$name" >/dev/null 2>&1; then
 	echo "✓ $name provided by the host ($(command -v "$name")); nothing to remove"

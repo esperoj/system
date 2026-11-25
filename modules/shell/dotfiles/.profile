@@ -24,6 +24,15 @@ load_all_envs() {
 
 load_all_envs
 
+# Make-target completion wherever bash runs interactively, with or without
+# the bash-completion package (the completion itself stays quiet outside
+# the system repo). Sourced from here — not from .bashrc — because .bashrc
+# already chains through .profile, so login and non-login shells both get
+# it exactly once: Debian desktop, Termux phone, rootless pubnix alike.
+if [ -n "${BASH_VERSION:-}" ] && [ -f "$HOME/.local/share/bash-completion/completions/make" ]; then
+    . "$HOME/.local/share/bash-completion/completions/make"
+fi
+
 _HOSTNAME=$(hostname 2>/dev/null || uname -n)
 
 if [ -n "${TERMUX_VERSION:-}" ]; then

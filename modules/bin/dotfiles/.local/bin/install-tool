@@ -6,7 +6,10 @@
 # here; rootless hosts get the static binary in ~/.local/bin. One rule,
 # every module, no drift.
 #
-# usage: install-tool <name> <source> [asset-pattern] [archive-binary]
+# usage: install-tool [--update] <name> <source> [asset-pattern] [archive-binary]
+#   --update          refresh an already-fetched tool: the latest release
+#                     is compared with the recorded one, and the binary is
+#                     re-fetched only when the release actually changed.
 #   <name>            command to look up on PATH and to install as
 #   <source>          fetch-bin source (URL or gh:owner/repo)
 #   [asset-pattern]   regex selecting the release asset
@@ -16,10 +19,21 @@
 # (lib.sh): ARCH is Go-style (amd64), XARCH is vendor-style (x64).
 # {OS} maps android to linux: upstream archives never publish "android"
 # assets, and their static linux builds are what run under Termux.
+#
+# State: the identity of the release actually fetched (see release_id
+# below) is recorded in ~/.local/state/system/tools/<name>/url (XDG-aware).
+# That record is the comparison base for --update and the provenance for
+# uninstall-tool; deleting it only costs one re-fetch.
 set -eu
 
+UPDATE=0
+if [ "${1:-}" = "--update" ]; then
+	UPDATE=1
+	shift
+fi
+
 [ $# -ge 2 ] || {
-	echo "usage: install-tool <name> <source> [asset-pattern] [archive-binary]" >&2
+	echo "usage: install-tool [--update] <name> <source> [asset-pattern] [archive-binary]" >&2
 	exit 1
 }
 
@@ -36,9 +50,20 @@ src="$2"
 pat="${3:-}"
 bin="${4:-$1}"
 
-if command -v "$name" >/dev/null 2>&1; then
-	echo "✓ $name already installed ($(command -v "$name"))"
-	exit 0
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/system/tools/$name"
+
+# A tool the host provides (apt, pkg, an admin) is never ours to fetch or
+# refresh: report and leave. A copy in ~/.local/bin is ours, update included.
+where=$(command -v "$name" 2>/dev/null || true)
+if [ -n "$where" ]; then
+	if [ "$UPDATE" -eq 0 ]; then
+		echo "✓ $name already installed ($where)"
+		exit 0
+	fi
+	if [ "$where" != "$HOME/.local/bin/$name" ]; then
+		echo "✓ $name provided by the host ($where); update it with the system package manager"
+		exit 0
+	fi
 fi
 
 case "$OS" in
@@ -49,4 +74,35 @@ esac
 src=$(printf '%s' "$src" | sed -e "s|{OS}|$ASSET_OS|g" -e "s|{ARCH}|$ARCH|g" -e "s|{XARCH}|$XARCH|g")
 pat=$(printf '%s' "$pat" | sed -e "s|{OS}|$ASSET_OS|g" -e "s|{ARCH}|$ARCH|g" -e "s|{XARCH}|$XARCH|g")
 
-fetch-bin "$src" "$pat" "$bin" "$HOME/.local/bin/$name"
+# The release identity, recorded at fetch time and compared on --update:
+#   - a gh: source resolves to a versioned URL (the tag rides in the path),
+#     so the identity is the URL itself and "already latest" is a
+#     zero-probe string comparison;
+#   - a direct "latest" link resolves to the same URL on every run, so its
+#     identity is the concrete asset the redirect chain ends at; signed
+#     query strings differ per request and are dropped.
+release_id() {
+	_u="$1"
+	case "$_u" in
+	*github.com/*/releases/download/*) printf '%s\n' "$_u" ;;
+	*) curl -fsSIL -o /dev/null -w '%{url_effective}' "$_u" | sed 's/[?#].*$//' ;;
+	esac
+}
+
+url=$(fetch_resolve_url "$src" "$pat")
+canonical=$(release_id "$url")
+
+if [ "$UPDATE" -eq 1 ] && [ -f "$STATE/url" ]; then
+	recorded=$(cat "$STATE/url")
+	if [ "$recorded" = "$canonical" ]; then
+		echo "✓ $name already latest (${canonical##*/})"
+		exit 0
+	fi
+	echo ":: $name: ${recorded##*/} -> ${canonical##*/}"
+fi
+
+# Resolve once here; fetch-bin then receives the concrete URL.
+fetch-bin "$url" "" "$bin" "$HOME/.local/bin/$name"
+
+mkdir -p "$STATE"
+printf '%s\n' "$canonical" >"$STATE/url"

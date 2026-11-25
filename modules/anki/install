@@ -1,5 +1,17 @@
 #!/usr/bin/env bash
+# anki - install the upstream binary release into ~/.local.
+#
+# usage: modules/anki/install [--update]
+#   (no flag)   install if missing; skip loudly when Anki works already
+#   --update    refresh to the latest release; the download is skipped
+#               when it matches the recorded one (state: url record)
 set -euo pipefail
+
+UPDATE=0
+if [ "${1:-}" = "--update" ]; then
+	UPDATE=1
+	shift
+fi
 
 LIB="${LIB_DIR:-$HOME/.local/lib}/sh/lib.sh"
 [ -f "$LIB" ] || {
@@ -10,6 +22,7 @@ LIB="${LIB_DIR:-$HOME/.local/lib}/sh/lib.sh"
 . "$LIB"
 
 PREFIX="${HOME}/.local"
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/system/tools/anki"
 
 # Map architecture to Anki release asset naming
 case "$ARCH" in
@@ -25,17 +38,30 @@ arm64)
 	;;
 esac
 
-# Only skip if already installed AND executable on this CPU
+URL=""
+
+# Only skip if already installed AND executable on this CPU. --update
+# resolves the latest release instead and skips the download when it
+# matches the recorded one (a gh: release URL embeds the tag, so the
+# comparison is exact and needs no probes).
 if command -v anki >/dev/null 2>&1 && anki --version >/dev/null 2>&1; then
-	echo "✓ Anki is already installed and functional."
-	exit 0
+	if [ "$UPDATE" -eq 0 ]; then
+		echo "✓ Anki is already installed and functional."
+		exit 0
+	fi
+	URL=$(fetch_resolve_url "gh:ankitects/anki" "linux-${ARCH_PATTERN}\.tar\.zst$")
+	recorded=""
+	if [ -f "$STATE/url" ]; then recorded=$(cat "$STATE/url"); fi
+	if [ "$recorded" = "$URL" ]; then
+		echo "✓ Anki already latest (${URL##*/})"
+		exit 0
+	fi
+	echo ":: Anki: ${recorded:-(no record)} -> ${URL##*/}"
 fi
+[ -n "$URL" ] || URL=$(fetch_resolve_url "gh:ankitects/anki" "linux-${ARCH_PATTERN}\.tar\.zst$")
 
 TMP_DIR=$(mktemp -d -t anki-install-XXXXXX)
-trap 'rm -rf "${TMP_DIR}"' EXIT
-
-echo ":: Resolving Anki release for linux-${ARCH_PATTERN}..."
-URL=$(fetch_resolve_url "gh:ankitects/anki" "linux-${ARCH_PATTERN}\.tar\.zst$")
+trap 'rm -rf "${TMP_DIR}"' EXIT INT TERM
 
 echo ":: Downloading and extracting Anki..."
 fetch_download "$URL" "${TMP_DIR}/anki.tar.zst"
@@ -60,5 +86,8 @@ if [ -f "${EXTRACTED_DIR}/anki.desktop" ]; then
 		-e "s|Icon=anki|Icon=${PREFIX}/share/pixmaps/anki.png|g" \
 		"${EXTRACTED_DIR}/anki.desktop" >"${PREFIX}/share/applications/anki.desktop"
 fi
+
+mkdir -p "${STATE}"
+printf '%s\n' "${URL}" >"${STATE}/url"
 
 echo "✓ Anki successfully installed to ${PREFIX}/bin/anki"

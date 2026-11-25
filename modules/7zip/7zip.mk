@@ -6,7 +6,11 @@ MOD_7ZIP := 1
 DEBIAN_PKGS += 7zip
 TERMUX_PKGS += 7zip
 
-.PHONY: 7zip
+.PHONY: 7zip 7zip-update
 7zip: sys-pkgs
 	@install-tool 7z gh:ip7z/7zip 'linux-{XARCH}\.tar\.xz$$' 7zz
+	@$(mark-applied)
+
+7zip-update: 7zip
+	@install-tool --update 7z gh:ip7z/7zip 'linux-{XARCH}\.tar\.xz$$' 7zz
 endif

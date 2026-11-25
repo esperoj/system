@@ -11,4 +11,5 @@ TERMUX_PKGS += emacs
 .PHONY: emacs
 emacs: sys-pkgs git stow
 	@$(stow-module)
+	@$(mark-applied)
 endif

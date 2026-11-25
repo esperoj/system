@@ -5,4 +5,5 @@ DEBIAN_PKGS += firefox-esr
 
 .PHONY: firefox
 firefox: sys-pkgs
+	@$(mark-applied)
 endif

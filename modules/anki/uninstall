@@ -1,0 +1,17 @@
+#!/bin/sh
+# anki uninstall - the mirror of modules/anki/install: removes the local
+# app tree, launcher, desktop file, icon, and the release record. A
+# host-provided Anki (system package) is never touched by this script;
+# the generic verb already reports that instead.
+set -eu
+
+PREFIX="$HOME/.local"
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/system/tools/anki"
+
+rm -rf "$PREFIX/share/anki" \
+	"$PREFIX/bin/anki" \
+	"$PREFIX/share/applications/anki.desktop" \
+	"$PREFIX/share/pixmaps/anki.png" \
+	"$STATE"
+
+echo "✓ Anki removed from $PREFIX"
