@@ -1,0 +1,28 @@
+#!/bin/sh
+# uninstall-tool - remove a tool that install-tool fetched into ~/.local/bin.
+# The mirror of the install gate: copies the host provides (everything
+# outside ~/.local/bin) are never touched, only reported.
+#
+# Deliberately independent of lib.sh, so it keeps working after the lib
+# module itself has been unstowed.
+#
+# usage: uninstall-tool <name>
+set -eu
+
+[ $# -eq 1 ] || {
+	echo "usage: uninstall-tool <name>" >&2
+	exit 1
+}
+
+name="$1"
+bin="$HOME/.local/bin/$name"
+state="${XDG_STATE_HOME:-$HOME/.local/state}/system/tools/$name"
+
+if [ -e "$bin" ] || [ -L "$bin" ]; then
+	rm -f "$bin" "$state"
+	echo "✓ removed $bin"
+elif command -v "$name" >/dev/null 2>&1; then
+	echo "✓ $name provided by the host ($(command -v "$name")); nothing to remove"
+else
+	echo "✓ $name not installed"
+fi

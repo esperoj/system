@@ -1,0 +1,12 @@
+#!/bin/sh
+# bin module host fixup removal: drop the fd -> fdfind alias if we made it.
+# Anything else at ~/.local/bin/fd (a real binary, a foreign link) stays.
+set -eu
+
+link="$HOME/.local/bin/fd"
+if [ -L "$link" ] && [ "$(readlink "$link")" = "$(command -v fdfind 2>/dev/null || true)" ]; then
+	rm -f "$link"
+	echo "✓ removed fd alias"
+else
+	echo "✓ fd alias not ours (or absent); leaving it"
+fi

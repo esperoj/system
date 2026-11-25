@@ -62,6 +62,9 @@ jobs:
             'export PATH="$HOME/.local/bin:$PATH"' \
             'command -v dot vault jq rclone age 7z stow' \
             'dot ls' \
+            'make update' \
+            'make jq-uninstall' \
+            '! command -v jq' \
             > /tmp/verify.sh
           su tester -c "sh /tmp/verify.sh '$PWD'"
 
@@ -94,4 +97,5 @@ jobs:
             export PATH="$HOME/.local/bin:$PATH"
             command -v dot vault jq rclone restic age 7z stow
             dot ls
+            make update
           '

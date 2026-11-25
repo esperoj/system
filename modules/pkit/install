@@ -1,12 +1,44 @@
 #!/bin/sh
+# pkit - manage the ~/projects/pkit checkout.
+#
+#   install (default)  clone when absent, then run pkit's own install
+#   update             pull --rebase, then re-run pkit's install
+#   uninstall          remove the checkout
 set -eu
+
+MODE="${1:-install}"
 
 dir="$HOME/projects/pkit"
 
-if ! [ -d "$dir" ]; then
-	echo "Installing pkit..."
-	git clone https://github.com/esperoj/pkit.git "$dir"
-	make -C "$dir" install setup-remotes
-else
-	echo "✓ pkit is already installed."
-fi
+case "$MODE" in
+install)
+	if ! [ -d "$dir" ]; then
+		echo "Installing pkit..."
+		git clone https://github.com/esperoj/pkit.git "$dir"
+		make -C "$dir" install setup-remotes
+	else
+		echo "✓ pkit is already installed."
+	fi
+	;;
+update)
+	if [ -d "$dir" ]; then
+		echo ":: Updating pkit..."
+		git -C "$dir" pull --rebase
+		make -C "$dir" install
+	else
+		echo "✓ pkit not installed; nothing to update"
+	fi
+	;;
+uninstall)
+	if [ -d "$dir" ]; then
+		rm -rf "$dir"
+		echo "✓ removed $dir"
+	else
+		echo "✓ pkit not installed; nothing to remove"
+	fi
+	;;
+*)
+	echo "usage: pkit/install {install|update|uninstall}" >&2
+	exit 1
+	;;
+esac

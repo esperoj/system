@@ -40,7 +40,24 @@ m() {
 # 4. FZF (Auto-load if installed)
 [ -f /usr/share/doc/fzf/examples/key-bindings.bash ] && . /usr/share/doc/fzf/examples/key-bindings.bash
 
-# 5. Fast, Native Bash Git Prompt
+# 5. Completion: bash-completion when present (it lazy-loads user-local
+#    completions from ~/.local/share/bash-completion/completions, where
+#    this repo installs its make-target completion ahead of the system's);
+#    otherwise source ours directly, so TAB completion of make targets
+#    works on every node type regardless.
+if ! shopt -oq posix; then
+    if [ -f /usr/share/bash-completion/bash_completion ]; then
+        . /usr/share/bash-completion/bash_completion
+    elif [ -f /usr/local/share/bash-completion/bash_completion ]; then
+        . /usr/local/share/bash-completion/bash_completion
+    elif [ -n "${PREFIX:-}" ] && [ -f "$PREFIX/share/bash-completion/bash_completion" ]; then
+        . "$PREFIX/share/bash-completion/bash_completion"
+    elif [ -f "$HOME/.local/share/bash-completion/completions/make" ]; then
+        . "$HOME/.local/share/bash-completion/completions/make"
+    fi
+fi
+
+# 6. Fast, Native Bash Git Prompt
 ps1_git() {
   local exit_code=$?
   local status_color="\[\e[32m\]✔\[\e[0m\]"

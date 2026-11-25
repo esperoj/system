@@ -2,7 +2,44 @@
 # chdman - mame-tools via the sys-pkgs barrier when privileged (root/sudo,
 # non-pubnix). Rootless fallback: apt-get download the .deb, extract to
 # ~/.local/opt/mame-tools, symlink every shipped binary into ~/.local/bin.
+#
+#   install (default)  skip when chdman is already on PATH
+#   update             refetch only when apt's candidate differs from the
+#                      recorded one (candidate read from the host's apt
+#                      lists; apt update is the admin's job, so a stale
+#                      list means an honest stale skip)
+#   uninstall          pure rm -- deliberately needs no lib.sh, so it keeps
+#                      working after the lib module itself is unstowed
 set -eu
+
+MODE="${1:-install}"
+
+PREFIX="$HOME/.local"
+OPT_DIR="$PREFIX/opt/mame-tools"
+BIN_DIR="$PREFIX/bin"
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/system/tools/chdman"
+
+usage() {
+	echo "usage: chdman/install {install|update|uninstall}" >&2
+	exit 1
+}
+
+remove_chdman() {
+	for link in "$BIN_DIR"/*; do
+		[ -L "$link" ] || continue
+		target=$(readlink "$link") || continue
+		case $target in
+		"$OPT_DIR"/*) rm -f "$link" ;;
+		esac
+	done
+	rm -rf "$OPT_DIR" "$STATE"
+	echo "✓ chdman removed from $PREFIX"
+}
+
+[ "$MODE" = uninstall ] && {
+	remove_chdman
+	exit 0
+}
 
 LIB="${LIB_DIR:-$HOME/.local/lib}/sh/lib.sh"
 [ -f "$LIB" ] || {
@@ -12,10 +49,32 @@ LIB="${LIB_DIR:-$HOME/.local/lib}/sh/lib.sh"
 # shellcheck source=/dev/null
 . "$LIB"
 
-# Same skip contract as 7zip: already on PATH (system or user-local) -> no-op.
-if command -v chdman >/dev/null 2>&1; then
-	echo "✓ chdman is already installed."
-	exit 0
+if [ "$MODE" = install ]; then
+	# Same skip contract as 7zip: already on PATH (system or user-local) -> no-op.
+	if command -v chdman >/dev/null 2>&1; then
+		echo "✓ chdman is already installed."
+		exit 0
+	fi
+elif [ "$MODE" = update ]; then
+	found=$(command -v chdman 2>/dev/null || true)
+	if [ -z "$found" ]; then
+		echo "✓ chdman not installed; nothing to update"
+		exit 0
+	fi
+	case "$found" in
+	"$BIN_DIR"/*) ;;
+	*)
+		echo "✓ chdman owned by the host ($found); its package manager updates it"
+		exit 0
+		;;
+	esac
+	cand=$(apt-cache policy mame-tools 2>/dev/null | sed -n 's/^  Candidate: //p')
+	if [ -n "$cand" ] && [ -s "$STATE" ] && [ "$(cat "$STATE")" = "$cand" ]; then
+		echo "✓ chdman already latest ($cand)"
+		exit 0
+	fi
+else
+	usage
 fi
 
 # Reached only when the barrier could not install (rootless pubnix).
@@ -30,10 +89,6 @@ for tool in apt-get dpkg-deb; do
 		exit 1
 	}
 done
-
-PREFIX="$HOME/.local"
-OPT_DIR="$PREFIX/opt/mame-tools"
-BIN_DIR="$PREFIX/bin"
 
 TMP_DIR=$(mktemp -d -t chdman-install-XXXXXX)
 trap 'rm -rf "$TMP_DIR"' EXIT
@@ -68,6 +123,13 @@ done
 if command -v ldd >/dev/null 2>&1 && ldd "$BIN_DIR/chdman" 2>/dev/null | grep -q 'not found'; then
 	echo "chdman: warning — missing shared libraries on this host:" >&2
 	ldd "$BIN_DIR/chdman" 2>/dev/null | grep 'not found' >&2
+fi
+
+# Record apt's candidate (the version key update compares against).
+cand=$(apt-cache policy mame-tools 2>/dev/null | sed -n 's/^  Candidate: //p')
+if [ -n "$cand" ]; then
+	mkdir -p "$(dirname "$STATE")"
+	printf '%s\n' "$cand" >"$STATE"
 fi
 
 echo "✓ chdman installed to $BIN_DIR/chdman (rootless mame-tools)"

@@ -105,6 +105,28 @@ prune() {
 		done
 }
 
+# Exit 0 iff any file of the named modules is currently linked from TARGET
+# back into the module -- the filesystem-derived answer to "was this
+# applied?". No state file: state is the filesystem.
+applied() {
+	for mod in "$@"; do
+		[ -d "$MODULES_DIR/$mod" ] || die "no such module: $mod"
+		dir=$(cd "$MODULES_DIR/$mod" && pwd -P)
+		if find "$dir" -type f | {
+			while IFS= read -r src; do
+				tgt=$TARGET/${src#"$dir"/}
+				if [ -L "$tgt" ] && [ "$(referent "$tgt" 2>/dev/null)" = "$src" ]; then
+					exit 0
+				fi
+			done
+			exit 1
+		}; then
+			return 0
+		fi
+	done
+	return 1
+}
+
 case ${1:-} in
 apply)
 	shift
@@ -118,6 +140,11 @@ remove)
 	stow -D -v --no-folding -d "$MODULES_DIR" -t "$TARGET" "$@"
 	;;
 prune) prune ;;
+applied)
+	shift
+	[ $# -ge 1 ] || die "usage: dot applied <module...>"
+	applied "$@"
+	;;
 ls)
 	for d in "$MODULES_DIR"/*/; do
 		[ -d "$d" ] || continue
@@ -125,5 +152,5 @@ ls)
 		printf '%s\n' "${d##*/}"
 	done | LC_ALL=C sort
 	;;
-*) die "usage: dot {apply|remove|prune|ls} [module...]" ;;
+*) die "usage: dot {apply|remove|prune|applied|ls} [module...]" ;;
 esac

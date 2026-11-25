@@ -126,6 +126,37 @@ Package installation is gated by one stamp per exact accumulated package set: ~.
 
 Old stamps linger in ~.state/~ until ~make clean-state~; the directory is disposable at any moment.
 
+· Module lifecycle: update and uninstall
+
+Every module owns three make goals — ~<module>~, ~<module>-update~, ~<module>-uninstall~ — because the root Makefile strips the ~-update~/~-uninstall~ verb before the module lookup: ~make rclone-update~ loads ~modules/rclone/rclone.mk~, which defines all three. A profile (base, phone, pubnix, desktop, docker-base) forwards the verb to its members.
+
+** make update
+
+~make update~ refreshes every module's applied footprint in one run; each module self-skips wherever it was never applied, so on any node this composes into "update everything this node actually uses":
+
+| Footprint                       | What update does                                                            |
+|---------------------------------+-----------------------------------------------------------------------------|
+| dotfile modules (env, ssh, ...) | ~dot apply~ — links point into the repo, so a pull IS the content update;    |
+|                                 | restowing just picks up newly added files (and the final ~dot prune~ drops  |
+|                                 | removed ones)                                                               |
+| fetched tools (~/.local/bin)    | version-key check against upstream; refetch only when newer — never         |
+|                                 | redownloads an unchanged latest                                             |
+| the vault                      | ~vault sync~ (pull, rebase, push — the daily-operation step)                 |
+| pkit and its data repos         | ~git pull --rebase~ + their own install/setup                                |
+| system packages (apt/pkg)      | never touched; the host package manager owns them (loud skip per module)     |
+
+Update never installs anything new and never talks to a package manager. There is deliberately no global ~make uninstall~: removing everything is a per-profile decision (~make phone-uninstall~), not a keystroke.
+
+** State: the filesystem, plus a disposable version cache
+
+"Is this module applied?" is derived, not recorded: ~dot applied~ answers it for stowed modules (any managed file linked back into the repo), and ~command -v~ plus a ~~/.local/bin~ prefix answers it for tools. No manifest to drift out of sync; deleting any state can never make the system lie.
+
+The one thing that IS cached is the version key of each fetched tool — ~${XDG_STATE_HOME:-~/.local/state}/system/tools/<name>~ — written by ~fetch-bin~ at install time and compared by ~install-tool -u~ (for chdman, apt's candidate version; for anki, the release URL). The cache is disposable like ~.state/~: losing it costs one redundant fetch, never correctness. It lives under ~$HOME~ (not the repo) so it survives a re-clone.
+
+** uninstall semantics
+
+~<module>-uninstall~ removes only what this system placed: stow links, fetched binaries, cloned repos, the managed crontab (only while it still matches the module's file). System packages are never removed — that is the host's decision — and each such module says so instead of pretending. Profiles uninstall their members in reverse install order through one serial recursive make (~-j1~), with two orderings enforced: ~vault-uninstall~ runs before ~bin-uninstall~ (it needs the CLIs), and ~stow-uninstall~ runs dead last (every ~dot remove~ needs the stow binary until the final module is unstowed).
+
 ** Shared recipe macro
 
 Stowing a module is one line in every module makefile:
@@ -156,17 +187,19 @@ There is no ~SUDO~ variable, nothing to export, nothing to remember. ~bootstrap~
 
 ** install-tool (the apt-or-.local gate)
 
-Every module tool goes through one gate — ~install-tool <name> <source> [asset-pattern] [archive-binary]~ — whose PATH check is the single source of truth for "is it installed":
+Every module tool goes through one gate — ~install-tool [-u] <name> <source> [asset-pattern] [archive-binary]~ — whose PATH check is the single source of truth for "is it installed":
 
 1. Already on PATH → skip (it came from apt, pkg, or a previous fetch — all the same).
 2. Otherwise fetch the static binary into =~/.local/bin= via ~fetch-bin~.
+
+With ~-u~ the same gate updates: absent tools skip ("not installed"), host-provided tools skip ("owned by the host"), and fetched tools compare the recorded version key against what upstream currently serves — downloading only on a real change. Its mirror ~uninstall-tool <name>~ removes the fetched copy and nothing else.
 
 So the same one-line rule covers every node type: Debian installs ~jq~ through apt and skips the fetch; Termux installs it through ~pkg~ and skips; a pubnix fetches it. Patterns may use placeholders substituted from the OS engine — ~{OS}~, ~{ARCH}~ (Go-style ~amd64~), ~{XARCH}~ (vendor-style ~x64~, as 7zip names it). On Termux ~{OS}~ substitutes ~linux~, because upstream archives never publish "android" assets — their static linux builds are what run there:
 
 #+begin_src makefile
 .PHONY: jq
 jq: sys-pkgs
-	@install-tool jq gh:jqlang/jq 'jq-{OS}-{ARCH}$$'
+        @install-tool jq gh:jqlang/jq 'jq-{OS}-{ARCH}$$'
 #+end_src
 
 Tools that need more than a fetch keep a real ~install~ script (~anki~, ~chdman~, ~stow~ — source build on rootless hosts).
@@ -195,6 +228,8 @@ Installs prebuilt binaries to =~/.local/bin= from direct URLs or GitHub releases
 
 Accepted trade: no checksum or signature verification. fetch-bin trusts HTTPS and the source. Reasonable for a personal system; do not copy into anything multi-user.
 
+Every successful fetch records its version key (resolved release URL) under ~${XDG_STATE_HOME:-~/.local/state}/system/tools/~ — the disposable cache ~install-tool -u~ compares against.
+
 · Dotfile management (~dot~)
 
 ~dot~ wraps GNU Stow with conflict-safe preparation and a lock for parallel make.
@@ -212,6 +247,7 @@ Hygiene: when a file is removed from a module, its link goes stale. ~dot prune~ 
 dot apply <module...>          # MODULES_DIR=<module-dir> dot apply dotfiles
 dot remove <module...>
 dot prune
+dot applied <module...>        # exit 0 iff linked back into the module
 dot ls
 #+end_src
 
@@ -286,7 +322,7 @@ This is why ~docker-base~ (and any profile) is secret-optional: in a disposable 
 └── .state/                    # ephemeral stamps (git-ignored, disposable)
 #+end_example
 
-Each module: ~<name>.mk~ (rules, packages, include guard), ~dotfiles/~ (stowed files), optional ~install~ (only for tools needing more than a fetch).
+Each module: ~<name>.mk~ (rules, packages, include guard — install, ~-update~ and ~-uninstall~ targets), ~dotfiles/~ (stowed files), optional ~install~ and ~uninstall~ scripts (only for tools needing more than a fetch; ~install~ takes ~install|update|uninstall~ modes).
 
 · Commissioning a node
 
@@ -447,11 +483,14 @@ make -n desktop                 # inspect the graph without running it
 cd ~/projects/system
 git pull --rebase
 make desktop                    # or phone / pubnix / docker-base
-dot prune                       # after pulls that removed files
-vault sync                      # honest exit codes
+make update                    # tools, links, vault, repos — skips what is latest
+dot prune                       # after pulls that removed files (make update does this too)
+vault sync                     # honest exit codes
 #+end_src
 
-Isolated modules: ~make emacs~, ~make git~, ~make dev~. Ad-hoc packages: ~install-sys-pkg ripgrep~. Ad-hoc tools: ~install-tool fzf gh:junegunn/fzf 'fzf-{OS}-{ARCH}$$'~. Force full package re-evaluation: ~make clean-state && make <profile>~ (switching profiles does not need clean-state). Inspect before running: ~make -n <goal>~.
+Isolated modules: ~make emacs~, ~make git~, ~make dev~. Lifecycle verbs: ~make rclone-update~, ~make rclone-uninstall~, ~make phone-update~, ~make phone-uninstall~. Ad-hoc packages: ~install-sys-pkg ripgrep~. Ad-hoc tools: ~install-tool fzf gh:junegunn/fzf 'fzf-{OS}-{ARCH}$$'~. Force full package re-evaluation: ~make clean-state && make <profile>~ (switching profiles does not need clean-state). Inspect before running: ~make -n <goal>~.
+
+Shell completion: ~make <TAB>~ completes every profile, module and verb on PC, phone and pubnix — the shell module stows a user-local bash completion that sees the goal-driven targets the stock one cannot (works with or without the bash-completion package).
 
 · Continuous integration
 
@@ -461,8 +500,8 @@ GitHub Actions (~.github/workflows/ci.yml~) exercises the system on every push a
 |-----------------+---------------------------------------------------------------------|
 | ~lint~          | shellcheck + shfmt pass on every script                             |
 | ~debian-image~  | ~docker build~ of the Dockerfile; CLIs and ~dot ls~ inside the image |
-| ~debian-rootless~ | a pubnix simulation: unprivileged user, no sudo — loud skip + user-local fetch fallbacks + ~0.2s~ no-op re-run |
-| ~termux~        | the full phone profile commissioned inside ~termux/termux-docker~ (with ~termux-exec~ preloaded, as on a device), then a no-op re-run |
+| ~debian-rootless~ | a pubnix simulation: unprivileged user, no sudo — loud skip + user-local fetch fallbacks + ~0.2s~ no-op re-run + ~make update~ no-redownload + ~make jq-uninstall~ |
+| ~termux~        | the full phone profile commissioned inside ~termux/termux-docker~ (with ~termux-exec~ preloaded, as on a device), then a no-op re-run and ~make update~ (host-owned skips) |
 
 Image publishing to the codefloe registry stays in ~.crow/publish.yaml~ (cron/manual).
 

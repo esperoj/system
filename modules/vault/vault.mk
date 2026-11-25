@@ -9,13 +9,17 @@ include modules/bin/bin.mk
 #   make vault VAULT_MODULES="ssh git"
 VAULT_MODULES ?= ssh base git rclone
 
-.PHONY: vault
+# Single-line shell conditionals throughout: tab-prefixed shell keywords
+# (else/fi at line start) break GNU make's guarded re-parse of a module
+# file included a second time -- `make base vault` used to die with
+# "recipe commences before first target".
+.PHONY: vault vault-update vault-uninstall
 vault: bin
-	@dir="$$HOME/.vault"
-	if [ -d "$$dir/.git" ]; then
-	    vault apply $(VAULT_MODULES)
-	else
-	    echo "vault: ~/.vault missing -- skipping vault apply"
-	    echo "vault: bring the vault over (README, Commissioning), then: make vault"
-	fi
+	@if [ -d "$$HOME/.vault/.git" ]; then vault apply $(VAULT_MODULES); else { echo "vault: ~/.vault missing -- skipping vault apply"; echo "vault: bring the vault over (README, Commissioning), then: make vault"; } fi
+
+vault-update:
+	@if [ -d "$$HOME/.vault/.git" ]; then vault sync; else echo "vault: ~/.vault missing -- nothing to update"; fi
+
+vault-uninstall:
+	@if [ -d "$$HOME/.vault/.git" ]; then vault remove $(VAULT_MODULES); else echo "vault: ~/.vault missing -- nothing to remove"; fi
 endif

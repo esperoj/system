@@ -1,5 +1,31 @@
 #!/bin/sh
+# stow - GNU Stow gate: system package when privileged, source build to
+# ~/.local when rootless (pubnix). The source build is pinned to STOW_VER;
+# upgrading it is a deliberate edit here, not an automatic fetch.
+#
+#   install (default)  no-op when stow is already on PATH
+#   uninstall          remove only the ~/.local build; host copies stay
 set -eu
+
+MODE="${1:-install}"
+
+case "$MODE" in
+uninstall)
+	if [ -e "$HOME/.local/bin/stow" ] || [ -L "$HOME/.local/bin/stow" ]; then
+		rm -f "$HOME/.local/bin/stow"
+		echo "✓ removed $HOME/.local/bin/stow"
+		echo "stow: supporting perl modules under $HOME/.local may remain; they are inert."
+	else
+		echo "✓ stow provided by the host; nothing to remove"
+	fi
+	exit 0
+	;;
+install) ;;
+*)
+	echo "usage: stow/install {install|uninstall}" >&2
+	exit 1
+	;;
+esac
 
 # 1. If stow is already installed via system package manager, exit immediately
 if command -v stow >/dev/null 2>&1; then

@@ -141,6 +141,38 @@ fetch_resolve_url() {
 	esac
 }
 
+# A stable identity for "what a source currently delivers" -- lets
+# install-tool -u skip the download when upstream still serves the same
+# latest. gh: sources resolve to their tagged asset URL; rotating direct
+# URLs (dl.filippo.io/age/latest) to their redirect target; pinned direct
+# URLs are their own key (their content only changes when the URL in the
+# module does). Mirrors fetch-bin's naming probe exactly, so a key recorded
+# by fetch-bin always compares equal.
+fetch_version_key() {
+	_source="$1"
+	_pattern="${2:-}"
+	case "$_source" in
+	gh:*)
+		fetch_resolve_url "$_source" "$_pattern"
+		;;
+	http://* | https://*)
+		_key="$_source"
+		case "$(basename "${_source%%\?*}")" in
+		*.tar.gz | *.tgz | *.tar.xz | *.tar.zst | *.tar.bz2 | *.zip | *.bz2 | *.gz) ;;
+		*)
+			_r=$(curl -fsSI -o /dev/null -w '%{redirect_url}' "$_source" 2>/dev/null || true)
+			[ -n "$_r" ] && _key="$_r"
+			;;
+		esac
+		printf '%s\n' "$_key"
+		;;
+	*)
+		echo "fetch_version_key: unsupported source '$_source'" >&2
+		return 1
+		;;
+	esac
+}
+
 # Download URL to a specific file
 fetch_download() {
 	_url="$1"
