@@ -6,19 +6,14 @@
 #   Standalone: install-sys-pkg ripgrep tmux fzf installs ad hoc.
 #
 # Privilege model — stated once, used everywhere:
-#   root or Termux  -> install directly
-#   provable sudo   -> prefix the command. Provable means one of:
-#                       - sudo validates non-interactively (`sudo -n -v`:
-#                         passwordless sudo, or a live credential cache);
-#                       - the account sits in the delegated-admin groups
-#                         (sudo on Debian, wheel on Alpine/FreeBSD) the
-#                         distros grant rights through; the password is
-#                         asked once, at use time.
-#   otherwise       -> rootless host: loud skip, exit 0, so module-level
-#                      user-local fallbacks (install-tool/fetch-bin) run.
-#                      A sudo binary on PATH proves nothing there — pubnix
-#                      admins install sudo for themselves — and /etc/sudoers
-#                      is not readable, so presence is not usability.
+#   root or Termux     -> install directly
+#   MACHINE_TYPE=pubnix -> rootless shared node: loud skip even though a
+#                          sudo binary sits on PATH (it belongs to the
+#                          host's admins; using it would only ask for a
+#                          password the node must not be given)
+#   sudo on PATH       -> prefix the command
+#   otherwise          -> rootless host: loud skip, exit 0, so module-level
+#                          user-local fallbacks (install-tool/fetch-bin) run
 set -eu
 
 LIB="${LIB_DIR:-$HOME/.local/lib}/sh/lib.sh"
@@ -50,18 +45,17 @@ PKGS=$(printf '%s\n' $PKGS | sort -u | tr '\n' ' ' | sed 's/^ //;s/ $//')
 
 echo ":: Installing system packages for [$DISTRO]: $PKGS"
 
-# Privilege is probed non-interactively: `sudo -n -v` never prompts (it
-# fails instead of asking), so this cannot hang an unattended run, and it
-# cannot mistake a shared host's admin tool for this account's privilege.
 if [ "$(id -u)" -eq 0 ] || [ "$DISTRO" = "termux" ]; then
 	SUDO=""
-elif command -v sudo >/dev/null 2>&1 && {
-	sudo -n -v 2>/dev/null ||
-		id -nG | tr ' ' '\n' | grep -qx -e sudo -e wheel
-}; then
+elif [ "$MACHINE_TYPE" = "pubnix" ]; then
+	echo "install-sys-pkg: MACHINE_TYPE=pubnix; skipping system packages (rootless shared node)." >&2
+	echo "install-sys-pkg: the host is expected to provide: $PKGS" >&2
+	echo "install-sys-pkg: user-local fallbacks will be fetched where modules define them." >&2
+	exit 0
+elif command -v sudo >/dev/null 2>&1; then
 	SUDO="sudo"
 else
-	echo "install-sys-pkg: no usable root/sudo on [$DISTRO]; skipping system packages." >&2
+	echo "install-sys-pkg: no root/sudo on [$DISTRO]; skipping system packages." >&2
 	echo "install-sys-pkg: the host is expected to provide: $PKGS" >&2
 	echo "install-sys-pkg: user-local fallbacks will be fetched where modules define them." >&2
 	exit 0

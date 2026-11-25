@@ -1,39 +1,5 @@
 #!/usr/bin/env bash
-# anki - install/update/uninstall the desktop app into ~/.local.
-#
-#   install (default)  skip when a working anki is already on PATH
-#   update             refetch only when upstream serves a newer release
-#                      (version key comparison, no redownload when latest)
-#   uninstall          pure rm -- deliberately needs no lib.sh, so it keeps
-#                      working after the lib module itself is unstowed
 set -euo pipefail
-
-MODE="${1:-install}"
-
-PREFIX="${HOME}/.local"
-STATE="${XDG_STATE_HOME:-$HOME/.local/state}/system/tools/anki"
-
-usage() {
-	echo "usage: anki/install {install|update|uninstall}" >&2
-	exit 1
-}
-
-remove_anki() {
-	rm -rf "${PREFIX}/share/anki" "${PREFIX}/bin/anki" \
-		"${PREFIX}/share/applications/anki.desktop" \
-		"${PREFIX}/share/pixmaps/anki.png" \
-		"${STATE}"
-	echo "✓ Anki removed from ${PREFIX}"
-}
-
-case "$MODE" in
-uninstall)
-	remove_anki
-	exit 0
-	;;
-install | update) ;;
-*) usage ;;
-esac
 
 LIB="${LIB_DIR:-$HOME/.local/lib}/sh/lib.sh"
 [ -f "$LIB" ] || {
@@ -42,6 +8,8 @@ LIB="${LIB_DIR:-$HOME/.local/lib}/sh/lib.sh"
 }
 # shellcheck source=/dev/null
 . "$LIB"
+
+PREFIX="${HOME}/.local"
 
 # Map architecture to Anki release asset naming
 case "$ARCH" in
@@ -57,36 +25,17 @@ arm64)
 	;;
 esac
 
-echo ":: Resolving Anki release for linux-${ARCH_PATTERN}..."
-URL=$(fetch_resolve_url "gh:ankitects/anki" "linux-${ARCH_PATTERN}\.tar\.zst$")
-
-if [ "$MODE" = update ]; then
-	found=$(command -v anki 2>/dev/null || true)
-	if [ -z "$found" ]; then
-		echo "✓ Anki not installed; nothing to update"
-		exit 0
-	fi
-	case "$found" in
-	"$PREFIX"/bin/*) ;;
-	*)
-		echo "✓ Anki owned by the host ($found); its package manager updates it"
-		exit 0
-		;;
-	esac
-	if [ -s "$STATE" ] && [ "$(cat "$STATE")" = "$URL" ]; then
-		echo "✓ Anki already latest"
-		exit 0
-	fi
-else
-	# Only skip if already installed AND executable on this CPU
-	if command -v anki >/dev/null 2>&1 && anki --version >/dev/null 2>&1; then
-		echo "✓ Anki is already installed and functional."
-		exit 0
-	fi
+# Only skip if already installed AND executable on this CPU
+if command -v anki >/dev/null 2>&1 && anki --version >/dev/null 2>&1; then
+	echo "✓ Anki is already installed and functional."
+	exit 0
 fi
 
 TMP_DIR=$(mktemp -d -t anki-install-XXXXXX)
 trap 'rm -rf "${TMP_DIR}"' EXIT
+
+echo ":: Resolving Anki release for linux-${ARCH_PATTERN}..."
+URL=$(fetch_resolve_url "gh:ankitects/anki" "linux-${ARCH_PATTERN}\.tar\.zst$")
 
 echo ":: Downloading and extracting Anki..."
 fetch_download "$URL" "${TMP_DIR}/anki.tar.zst"
@@ -111,9 +60,5 @@ if [ -f "${EXTRACTED_DIR}/anki.desktop" ]; then
 		-e "s|Icon=anki|Icon=${PREFIX}/share/pixmaps/anki.png|g" \
 		"${EXTRACTED_DIR}/anki.desktop" >"${PREFIX}/share/applications/anki.desktop"
 fi
-
-# Record the delivered release so update can skip an unchanged latest.
-mkdir -p "$(dirname "$STATE")"
-printf '%s\n' "$URL" >"$STATE"
 
 echo "✓ Anki successfully installed to ${PREFIX}/bin/anki"

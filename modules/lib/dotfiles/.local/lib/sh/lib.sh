@@ -2,8 +2,10 @@
 # lib.sh - the system's single shared shell library.
 # Resolved through the two-location contract: $LIB_DIR (set by Make or
 # bootstrap, pointing at the repo) or ~/.local/lib (installed, standalone).
-# Sections: OS engine (exports OS DISTRO ARCH XARCH) and fetch engine
-# (URL resolution, download, extraction — used by fetch-bin).
+# Sections: OS engine (exports OS DISTRO ARCH XARCH), machine engine
+# (resolves MACHINE_TYPE: explicit environment first, then
+# ~/.config/env/*.env) and fetch engine (URL resolution, download,
+# extraction — used by fetch-bin).
 set -eu
 
 # --- OS engine ---------------------------------------------------------
@@ -48,6 +50,27 @@ esac
 
 export OS DISTRO ARCH XARCH
 unset _uname_s _uname_m
+
+# --- Machine engine ----------------------------------------------------
+# MACHINE_TYPE names the node's role (pubnix, desktop, phone, docker-base).
+# Precedence, stated once:
+#   1. an explicit environment value always wins (make goals export it,
+#      CI and `docker run -e` set it, an ad-hoc shell can override it);
+#   2. otherwise the installed env files (~/.config/env/*.env — the same
+#      files .profile exports at login) supply it, so non-login contexts
+#      (make recipes, cron, one-shot ssh) see the identity too;
+#   3. otherwise it exports empty and the node stays unnamed.
+# Files are sourced but not re-exported: only MACHINE_TYPE leaves this
+# section, so no other login-time variable leaks into installers.
+if [ -z "${MACHINE_TYPE:-}" ] && [ -d "$HOME/.config/env" ]; then
+	for _env in "$HOME"/.config/env/*.env; do
+		[ -f "$_env" ] || continue
+		# shellcheck source=/dev/null
+		. "$_env"
+	done
+fi
+export MACHINE_TYPE="${MACHINE_TYPE:-}"
+unset _env
 
 # --- Fetch engine ------------------------------------------------------
 
@@ -136,38 +159,6 @@ fetch_resolve_url() {
 		;;
 	*)
 		echo "fetch: Unsupported source scheme '$_source'" >&2
-		return 1
-		;;
-	esac
-}
-
-# A stable identity for "what a source currently delivers" -- lets
-# install-tool -u skip the download when upstream still serves the same
-# latest. gh: sources resolve to their tagged asset URL; rotating direct
-# URLs (dl.filippo.io/age/latest) to their redirect target; pinned direct
-# URLs are their own key (their content only changes when the URL in the
-# module does). Mirrors fetch-bin's naming probe exactly, so a key recorded
-# by fetch-bin always compares equal.
-fetch_version_key() {
-	_source="$1"
-	_pattern="${2:-}"
-	case "$_source" in
-	gh:*)
-		fetch_resolve_url "$_source" "$_pattern"
-		;;
-	http://* | https://*)
-		_key="$_source"
-		case "$(basename "${_source%%\?*}")" in
-		*.tar.gz | *.tgz | *.tar.xz | *.tar.zst | *.tar.bz2 | *.zip | *.bz2 | *.gz) ;;
-		*)
-			_r=$(curl -fsSI -o /dev/null -w '%{redirect_url}' "$_source" 2>/dev/null || true)
-			[ -n "$_r" ] && _key="$_r"
-			;;
-		esac
-		printf '%s\n' "$_key"
-		;;
-	*)
-		echo "fetch_version_key: unsupported source '$_source'" >&2
 		return 1
 		;;
 	esac

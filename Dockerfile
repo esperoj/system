@@ -3,9 +3,14 @@ ARG DEBIAN_VERSION=13-slim
 
 FROM ${REGISTRY_PROXY}docker.io/library/debian:${DEBIAN_VERSION}
 
+# Machine identity is an environment variable: the container names itself,
+# and `docker run -e MACHINE_TYPE=pubnix` turns the image into a faithful
+# pubnix rehearsal (its passwordless sudo is then ignored, exactly as the
+# shared host's sudo is).
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C \
-    LC_ALL=C
+    LC_ALL=C \
+    MACHINE_TYPE=docker-base
 
 RUN echo 'APT::Install-Recommends "0";' > /etc/apt/apt.conf.d/99no-recommends && \
     echo 'APT::Install-Suggests "0";' >> /etc/apt/apt.conf.d/99no-recommends && \

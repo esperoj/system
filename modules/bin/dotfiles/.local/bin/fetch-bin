@@ -103,28 +103,11 @@ mkdir -p "$(dirname "$DEST_PATH")"
 
 if [ -d "$DEST_PATH" ]; then
 	TARGET="${DEST_PATH%/}/${BIN_NAME}"
-	RECORD_NAME="$BIN_NAME"
 else
 	TARGET="$DEST_PATH"
-	RECORD_NAME="$(basename "$DEST_PATH")"
 fi
 
 cp -f "$FOUND_BIN" "$TARGET"
 chmod 755 "$TARGET"
-
-# Remember what we delivered (version key, see fetch_version_key in
-# lib.sh), so `install-tool -u` can compare on the next run and skip the
-# download when upstream still serves the same latest. The cache is
-# disposable: losing it costs one redundant fetch, never correctness.
-# Key mirrors fetch_version_key exactly: resolved asset URL for gh:
-# sources, redirect target for rotating direct URLs, the URL itself
-# otherwise.
-case "$SOURCE" in
-gh:*) _key="$URL" ;;
-*) _key="${_redirect:-$URL}" ;;
-esac
-_state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/system/tools"
-mkdir -p "$_state_dir"
-printf '%s\n' "$_key" >"$_state_dir/$RECORD_NAME"
 
 echo "✓ Successfully installed $TARGET"

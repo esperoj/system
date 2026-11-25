@@ -7,13 +7,7 @@ COMMON_PKGS += fzf tmux vim ripgrep shellcheck shfmt jq
 DEBIAN_PKGS += build-essential patch bats nodejs npm python3 python3-pip pipx python3-venv
 TERMUX_PKGS += clang make python nodejs-lts
 
-.PHONY: dev dev-update dev-uninstall
+.PHONY: dev
 dev: sys-pkgs stow
 	@$(stow-module)
-
-dev-update:
-	@$(call refresh-module,dev)
-
-dev-uninstall:
-	@$(call unstow-module,dev)
 endif

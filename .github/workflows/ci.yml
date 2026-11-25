@@ -42,36 +42,34 @@ jobs:
     container: debian:13-slim
     steps:
       # The pubnix contract, faithfully: the host (here: the container
-      # admin) provides the baseline tools AND installs sudo — every real
-      # pubnix has the binary, for its admins — while the user holds no
-      # root and no sudoers rights. The commissioning below must finish
-      # without ever invoking sudo: there is no terminal for a password,
-      # so any attempt (password prompt or policy refusal) fails the
-      # script outright. A sudo binary on PATH is never usable privilege.
+      # admin) provides the baseline tools plus the two binaries every
+      # shared host ships for its own use -- sudo and cron -- while the
+      # user has no root, no sudoers seat, and no terminal. MACHINE_TYPE
+      # must keep install-sys-pkg away from that sudo; any regression
+      # fails the job, because sudo without a terminal refuses outright.
       - name: Install host-provided tools
         run: |
           apt-get update -qq
           apt-get install -y -qq --no-install-recommends \
-            git make curl perl ca-certificates unzip xz-utils bzip2 sudo
+            git make curl perl ca-certificates unzip xz-utils bzip2 sudo cron
       - uses: actions/checkout@main
-      - name: Commission base profile as an unprivileged user
+      - name: Commission pubnix profile as an unprivileged user
         run: |
           useradd -m tester
           chown -R tester:tester "$PWD"
           printf '%s\n' \
             'set -eu' \
             'cd "$1"' \
-            './bootstrap base' \
-            'make base' \
+            './bootstrap pubnix' \
+            'make pubnix' \
             'export PATH="$HOME/.local/bin:$PATH"' \
-            'command -v dot vault jq rclone age 7z stow' \
-            'test -f "$HOME/.local/share/bash-completion/completions/make"' \
+            'command -v dot vault jq rclone age 7z stow wireproxy' \
             'dot ls' \
-            'make update' \
-            'make jq-uninstall' \
-            '! command -v jq' \
-            'install-sys-pkg ripgrep >/tmp/probe.log 2>&1' \
-            'grep -q "skipping system packages" /tmp/probe.log' \
+            '# Machine identity must hold outside make too: nothing here' \
+            '# exports MACHINE_TYPE, so the standalone installer has to' \
+            '# find it in ~/.config/env/pubnix.env, stowed a moment ago.' \
+            'out=$(install-sys-pkg ripgrep 2>&1) || { printf "%s\n" "$out"; exit 1; }' \
+            'printf "%s\n" "$out" | grep -q "MACHINE_TYPE=pubnix" || { printf "%s\n" "$out"; exit 1; }' \
             > /tmp/verify.sh
           su tester -c "sh /tmp/verify.sh '$PWD'"
 
@@ -104,5 +102,4 @@ jobs:
             export PATH="$HOME/.local/bin:$PATH"
             command -v dot vault jq rclone restic age 7z stow
             dot ls
-            make update
           '

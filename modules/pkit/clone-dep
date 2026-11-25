@@ -1,47 +1,22 @@
 #!/bin/sh
-# clone-dep - manage one pkit data repository: install (clone + setup),
-# update (pull + setup) or uninstall (rm).
+# clone-dep - clone and set up one pkit data repository.
 # Shared by pkit-meta (records) and pkit-archive (archive); both goals can
-# run in parallel, each managing its own directory.
+# run in parallel, each cloning its own directory.
 #
 # Requires the vault to be applied first (these repos are private and clone
 # over SSH with the keys the vault provides) — the module makefiles express
 # that with a `vault` prerequisite.
 set -eu
 
-[ $# -eq 2 ] || {
-	echo "usage: clone-dep <install|update|uninstall> <repo-name>" >&2
+[ $# -eq 1 ] || {
+	echo "usage: clone-dep <repo-name>" >&2
 	exit 1
 }
 
-mode="$1"
-repo="$2"
-dir="$HOME/.local/share/pkit/$repo"
+dir="$HOME/.local/share/pkit/$1"
 
-case "$mode" in
-install)
-	[ -d "$dir" ] || git clone "git@github.com:esperoj/$repo.git" "$dir"
-	make -C "$dir" setup
-	;;
-update)
-	if [ -d "$dir" ]; then
-		echo ":: Updating $repo..."
-		git -C "$dir" pull --rebase
-		make -C "$dir" setup
-	else
-		echo "✓ $repo not cloned; nothing to update"
-	fi
-	;;
-uninstall)
-	if [ -d "$dir" ]; then
-		rm -rf "$dir"
-		echo "✓ removed $dir"
-	else
-		echo "✓ $repo not cloned; nothing to remove"
-	fi
-	;;
-*)
-	echo "usage: clone-dep <install|update|uninstall> <repo-name>" >&2
-	exit 1
-	;;
-esac
+if [ ! -d "$dir" ]; then
+	git clone "git@github.com:esperoj/$1.git" "$dir"
+fi
+
+make -C "$dir" setup

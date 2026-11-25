@@ -7,8 +7,9 @@
 # package installer) and hands off to GNU make.
 #
 # Privilege is install-sys-pkg's problem, stated once there: root or Termux
-# install directly, provably usable sudo prefixes the command, and a rootless
-# host without make fails here with a clear message instead of a cryptic one.
+# install directly, a sudo binary is used when present, MACHINE_TYPE=pubnix
+# forces the rootless skip, and a rootless host without make fails here
+# with a clear message instead of a cryptic one.
 #
 # Layering (see README, Commissioning):
 #   bootstrap <profile>  -> tools only; no secrets needed or touched
@@ -35,6 +36,14 @@ if ! command -v "$MAKE_BIN" >/dev/null 2>&1; then
 		exit 1
 	}
 fi
+
+# Machine identity, stated once per invocation: the commissioning goal IS
+# the machine type. Profile makefiles export the same mapping for their
+# recipes; bootstrap does it earlier so the make-provisioning call above
+# (install-sys-pkg) already behaves rootless on a pubnix.
+case "${1:-}" in
+pubnix | phone | desktop | docker-base) export MACHINE_TYPE="$1" ;;
+esac
 
 echo ":: bootstrap complete; handing off to '$MAKE_BIN $*'"
 exec "$MAKE_BIN" "$@"

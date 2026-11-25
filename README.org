@@ -57,7 +57,7 @@ Avoided: configuration frameworks, dotfile DSLs, state daemons, formats needing 
 · Strict vault permissions. =~/.vault= clamped to 0700 dirs and 0600/0700 files on every apply/sync, on demand via ~vault chmod~.
 · Backup before overwrite. ~dot~ keeps an unmanaged host file blocking a link beside itself as ~.a.bak~ (latest wins) — never destroys it.
 · Network honesty. Applying config is offline (stow, vault apply, prune, lint, fmt). Installing is online and fails loudly without network. Offline-safe for everything that does not fetch, not offline-first.
-· Rootless honesty. Without provably usable privilege, ~install-sys-pkg~ prints a loud skip listing what the host must provide, exits 0 so fetch fallbacks run. Never pretends to install, never asks for a password it could not use.
+· Rootless honesty. With no root/sudo — or on a pubnix, where ~MACHINE_TYPE=pubnix~ says rootless even though the shared host ships ~sudo~ — ~install-sys-pkg~ prints a loud skip listing what the host must provide, exits 0 so fetch fallbacks run. Never pretends to install, never asks for a password.
 
 ** Axiom 4 — Pragmatic Flow
 
@@ -75,7 +75,7 @@ Avoided: configuration frameworks, dotfile DSLs, state daemons, formats needing 
 │  package-set-keyed install stamps          │
 │  DAG ordering, parallel-safe               │
 └──────────────┬─────────────────────────────┘
-│ exports COMMON_PKGS DEBIAN_PKGS ... LIB_DIR
+│ exports COMMON_PKGS DEBIAN_PKGS ... LIB_DIR MACHINE_TYPE
 ▼
 ┌────────────────────────────────────────────┐
 │ SHELL LAYER (host-aware)                   │
@@ -126,37 +126,6 @@ Package installation is gated by one stamp per exact accumulated package set: ~.
 
 Old stamps linger in ~.state/~ until ~make clean-state~; the directory is disposable at any moment.
 
-· Module lifecycle: update and uninstall
-
-Every module owns three make goals — ~<module>~, ~<module>-update~, ~<module>-uninstall~ — because the root Makefile strips the ~-update~/~-uninstall~ verb before the module lookup: ~make rclone-update~ loads ~modules/rclone/rclone.mk~, which defines all three. A profile (base, phone, pubnix, desktop, docker-base) forwards the verb to its members.
-
-** make update
-
-~make update~ refreshes every module's applied footprint in one run; each module self-skips wherever it was never applied, so on any node this composes into "update everything this node actually uses":
-
-| Footprint                       | What update does                                                            |
-|---------------------------------+-----------------------------------------------------------------------------|
-| dotfile modules (env, ssh, ...) | ~dot apply~ — links point into the repo, so a pull IS the content update;    |
-|                                 | restowing just picks up newly added files (and the final ~dot prune~ drops  |
-|                                 | removed ones)                                                               |
-| fetched tools (~/.local/bin)    | version-key check against upstream; refetch only when newer — never         |
-|                                 | redownloads an unchanged latest                                             |
-| the vault                      | ~vault sync~ (pull, rebase, push — the daily-operation step)                 |
-| pkit and its data repos         | ~git pull --rebase~ + their own install/setup                                |
-| system packages (apt/pkg)      | never touched; the host package manager owns them (loud skip per module)     |
-
-Update never installs anything new and never talks to a package manager. There is deliberately no global ~make uninstall~: removing everything is a per-profile decision (~make phone-uninstall~), not a keystroke.
-
-** State: the filesystem, plus a disposable version cache
-
-"Is this module applied?" is derived, not recorded: ~dot applied~ answers it for stowed modules (any managed file linked back into the repo), and ~command -v~ plus a ~~/.local/bin~ prefix answers it for tools. No manifest to drift out of sync; deleting any state can never make the system lie.
-
-The one thing that IS cached is the version key of each fetched tool — ~${XDG_STATE_HOME:-~/.local/state}/system/tools/<name>~ — written by ~fetch-bin~ at install time and compared by ~install-tool -u~ (for chdman, apt's candidate version; for anki, the release URL). The cache is disposable like ~.state/~: losing it costs one redundant fetch, never correctness. It lives under ~$HOME~ (not the repo) so it survives a re-clone.
-
-** uninstall semantics
-
-~<module>-uninstall~ removes only what this system placed: stow links, fetched binaries, cloned repos, the managed crontab (only while it still matches the module's file). System packages are never removed — that is the host's decision — and each such module says so instead of pretending. Profiles uninstall their members in reverse install order through one serial recursive make (~-j1~), with two orderings enforced: ~vault-uninstall~ runs before ~bin-uninstall~ (it needs the CLIs), and ~stow-uninstall~ runs dead last (every ~dot remove~ needs the stow binary until the final module is unstowed).
-
 ** Shared recipe macro
 
 Stowing a module is one line in every module makefile:
@@ -171,49 +140,42 @@ stow-module = MODULES_DIR="$(MODULES_DIR)/$@" dot apply dotfiles
 
 ~install-sys-pkg~ is the only thing that talks to a system package manager, and it decides privilege by itself:
 
-| Situation                                     | Behaviour                                                       |
-|-----------------------------------------------+-----------------------------------------------------------------|
-| root, or Termux                               | install directly                                                |
-| provable ~sudo~                               | prefix the command with ~sudo~                                  |
-| neither (rootless host)                       | loud skip, exit 0 — fetch fallbacks take over                   |
+| Situation                  | Behaviour                                                  |
+|----------------------------+------------------------------------------------------------|
+| root, or Termux            | install directly                                           |
+| ~MACHINE_TYPE=pubnix~      | loud skip, exit 0 — a ~sudo~ on PATH is deliberately ignored |
+| ~sudo~ on PATH             | prefix the command with ~sudo~                             |
+| neither (rootless host)    | loud skip, exit 0 — fetch fallbacks take over              |
 
-Provable means exactly one of two things, both checked without ever prompting:
-
-1. ~sudo -n -v~ succeeds — passwordless sudo (containers) or a live credential cache (a terminal session that already authenticated).
-2. The account sits in the delegated-admin groups (~sudo~ on Debian, ~wheel~ on Alpine/FreeBSD) through which distributions actually grant rights; the password is asked once, at use time.
-
-Everything else — including a ~sudo~ binary the admins left on PATH for themselves, which is every pubnix — is a rootless host. Presence is not usability: ~/etc/sudoers~ is not readable, and a probe that could hang waiting for a password is not honest. One trade-off follows: an account granted sudo outside the admin groups (hand-written ~sudoers.d~ entry) is skipped loudly too; install those packages by hand. On such hosts ~sudo apt-get install …~ still works when typed.
-
-There is no ~SUDO~ variable, nothing to export, nothing to remember. ~bootstrap~ does not second-guess this: it hands package work to ~install-sys-pkg~ and only dies clearly when the host cannot provide GNU make.
+Machine identity is the one variable worth exporting: ~MACHINE_TYPE~ (~pubnix~, ~phone~, ~desktop~, ~docker-base~). It reaches every context without probing: profile makefiles export it from their goal, ~bootstrap~ from its first argument, a login shell from =~/.config/env/<machine>.env=, and CI or ~docker run -e~ set it directly. ~lib.sh~ resolves it once per script — explicit environment first, then the env files — so make recipes, cron and one-shot ~ssh~ see the same identity a login shell does. ~bootstrap~ still does not second-guess the model: it hands package work to ~install-sys-pkg~ and only dies clearly when the host cannot provide GNU make.
 
 ** install-sys-pkg (dual-mode installer)
 
 · Batch (from Make): no arguments. Unions ~COMMON_PKGS~ with the current distro's set, deduplicates, installs.
 · Standalone: ~install-sys-pkg ripgrep tmux fzf~ installs ad hoc.
+· Pubnix: ~MACHINE_TYPE=pubnix~ forces the rootless skip even when the shared host ships a ~sudo~ binary — a password prompt there is a bug, not a question.
 · Rootless: prints a loud skip naming the packages the host must provide.
 
 ** install-tool (the apt-or-.local gate)
 
-Every module tool goes through one gate — ~install-tool [-u] <name> <source> [asset-pattern] [archive-binary]~ — whose PATH check is the single source of truth for "is it installed":
+Every module tool goes through one gate — ~install-tool <name> <source> [asset-pattern] [archive-binary]~ — whose PATH check is the single source of truth for "is it installed":
 
 1. Already on PATH → skip (it came from apt, pkg, or a previous fetch — all the same).
 2. Otherwise fetch the static binary into =~/.local/bin= via ~fetch-bin~.
-
-With ~-u~ the same gate updates: absent tools skip ("not installed"), host-provided tools skip ("owned by the host"), and fetched tools compare the recorded version key against what upstream currently serves — downloading only on a real change. Its mirror ~uninstall-tool <name>~ removes the fetched copy and nothing else.
 
 So the same one-line rule covers every node type: Debian installs ~jq~ through apt and skips the fetch; Termux installs it through ~pkg~ and skips; a pubnix fetches it. Patterns may use placeholders substituted from the OS engine — ~{OS}~, ~{ARCH}~ (Go-style ~amd64~), ~{XARCH}~ (vendor-style ~x64~, as 7zip names it). On Termux ~{OS}~ substitutes ~linux~, because upstream archives never publish "android" assets — their static linux builds are what run there:
 
 #+begin_src makefile
 .PHONY: jq
 jq: sys-pkgs
-        @install-tool jq gh:jqlang/jq 'jq-{OS}-{ARCH}$$'
+	@install-tool jq gh:jqlang/jq 'jq-{OS}-{ARCH}$$'
 #+end_src
 
 Tools that need more than a fetch keep a real ~install~ script (~anki~, ~chdman~, ~stow~ — source build on rootless hosts).
 
 ** Library contract
 
-One library, ~lib/sh/lib.sh~ (OS engine + fetch engine), resolved through exactly two locations: ~$LIB_DIR~ (exported by Make and by ~bootstrap~, pointing at the repo) or =~/.local/lib= (installed, standalone use):
+One library, ~lib/sh/lib.sh~ (OS engine + machine engine + fetch engine), resolved through exactly two locations: ~$LIB_DIR~ (exported by Make and by ~bootstrap~, pointing at the repo) or =~/.local/lib= (installed, standalone use):
 
 #+begin_src sh
 LIB="${LIB_DIR:-$HOME/.local/lib}/sh/lib.sh"
@@ -223,6 +185,8 @@ LIB="${LIB_DIR:-$HOME/.local/lib}/sh/lib.sh"
 #+end_src
 
 ~bootstrap~ is no longer a special case: it sets the same ~PATH~/~LIB_DIR~ the Makefile uses, then delegates everything else.
+
+The machine engine resolves ~MACHINE_TYPE~ once per script: an explicit environment value wins; otherwise the installed =~/.config/env/*.env= files supply it — the same files ~.profile~ exports at login — so non-login contexts (make recipes, cron, one-shot ~ssh~) see the identity too. Only ~MACHINE_TYPE~ is exported onward; no other login-time variable leaks into installers.
 
 ** fetch-bin (binary fallback engine)
 
@@ -234,8 +198,6 @@ Installs prebuilt binaries to =~/.local/bin= from direct URLs or GitHub releases
 4. Anything ambiguous fails loudly, listing every candidate.
 
 Accepted trade: no checksum or signature verification. fetch-bin trusts HTTPS and the source. Reasonable for a personal system; do not copy into anything multi-user.
-
-Every successful fetch records its version key (resolved release URL) under ~${XDG_STATE_HOME:-~/.local/state}/system/tools/~ — the disposable cache ~install-tool -u~ compares against.
 
 · Dotfile management (~dot~)
 
@@ -254,7 +216,6 @@ Hygiene: when a file is removed from a module, its link goes stale. ~dot prune~ 
 dot apply <module...>          # MODULES_DIR=<module-dir> dot apply dotfiles
 dot remove <module...>
 dot prune
-dot applied <module...>        # exit 0 iff linked back into the module
 dot ls
 #+end_src
 
@@ -329,7 +290,7 @@ This is why ~docker-base~ (and any profile) is secret-optional: in a disposable 
 └── .state/                    # ephemeral stamps (git-ignored, disposable)
 #+end_example
 
-Each module: ~<name>.mk~ (rules, packages, include guard — install, ~-update~ and ~-uninstall~ targets), ~dotfiles/~ (stowed files), optional ~install~ and ~uninstall~ scripts (only for tools needing more than a fetch; ~install~ takes ~install|update|uninstall~ modes).
+Each module: ~<name>.mk~ (rules, packages, include guard), ~dotfiles/~ (stowed files), optional ~install~ (only for tools needing more than a fetch).
 
 · Commissioning a node
 
@@ -451,7 +412,7 @@ Nothing else is needed beforehand: the Termux app starts every session through ~
 
 ** Pubnix (shared rootless UNIX)
 
-Expectations, honestly: you have no root, and nothing to configure — privilege is auto-detected, and the ~sudo~ binary the admins left on PATH is correctly read as not yours. The host must already provide ~git~, ~make~ (~gmake~ on FreeBSD), ~curl~, ~perl~, ~bash~, and the archive tools the fetches need (~unzip~, ~xz~, ~bzip2~). Without usable sudo, ~install-sys-pkg~ skips loudly; ~stow~ falls back to a source build into =~/.local=; ~install-tool~ fetches the rest into =~/.local/bin=. Anything neither present nor fetchable needs the host admin.
+Expectations, honestly: you have no root, and nothing to configure — the machine identifies itself. ~MACHINE_TYPE=pubnix~ is exported by the profile goal during commissioning and afterwards by =~/.config/env/pubnix.env~ through your login shell, so ~install-sys-pkg~ takes its rootless skip even though the shared host ships a ~sudo~ binary — no password is ever asked for. The host must already provide ~git~, ~make~ (~gmake~ on FreeBSD), ~curl~, ~perl~, ~bash~, and the archive tools the fetches need (~unzip~, ~xz~, ~bzip2~). ~stow~ falls back to a source build into =~/.local=; ~install-tool~ fetches the rest into =~/.local/bin=. Anything neither present nor fetchable needs the host admin.
 
 #+begin_src sh
 ssh -A user@pubnix.example      # Method 2; or carry a seed (Method 1)
@@ -463,7 +424,7 @@ make vault
 exec bash -l
 #+end_src
 
-=~/.profile= handles pubnix quirks (per-host ~TMPDIR~, python paths). crontab availability depends on the host's policy.
+=~/.profile= handles pubnix quirks (per-host ~TMPDIR~, python paths) and exports ~MACHINE_TYPE~ from =~/.config/env/pubnix.env~. crontab availability depends on the host's policy.
 
 ** Container (docker-base)
 
@@ -472,7 +433,7 @@ docker build -t system:base .
 docker run -it --rm system:base
 #+end_src
 
-The image runs ~./bootstrap docker-base~ at build time as non-root user ~esperoj~, who holds passwordless sudo for ad-hoc installs — a container-only convenience for disposable environments. NOPASSWD has no place on a persistent host. No secrets are baked in: ~.vault~, ~.age~, and ~vault-seed~ are docker-ignored; the vault step skips loudly in the build log by design. Want only the tools in a container? That is exactly what this profile is — commission the vault inside a running container with Method 1 or 2 if needed.
+The image self-identifies through ~MACHINE_TYPE=docker-base~ and runs ~./bootstrap docker-base~ at build time as non-root user ~esperoj~, who holds passwordless sudo for ad-hoc installs — a container-only convenience for disposable environments. NOPASSWD has no place on a persistent host. No secrets are baked in: ~.vault~, ~.age~, and ~vault-seed~ are docker-ignored; the vault step skips loudly in the build log by design. Want only the tools in a container? That is exactly what this profile is — commission the vault inside a running container with Method 1 or 2 if needed. Want to rehearse a pubnix instead? ~docker run -e MACHINE_TYPE=pubnix -it system:base~ — machine identity is an environment variable, so the image's passwordless sudo is ignored exactly as the shared host's sudo is.
 
 ** Verification checklist (every node)
 
@@ -490,14 +451,11 @@ make -n desktop                 # inspect the graph without running it
 cd ~/projects/system
 git pull --rebase
 make desktop                    # or phone / pubnix / docker-base
-make update                    # tools, links, vault, repos — skips what is latest
-dot prune                       # after pulls that removed files (make update does this too)
-vault sync                     # honest exit codes
+dot prune                       # after pulls that removed files
+vault sync                      # honest exit codes
 #+end_src
 
-Isolated modules: ~make emacs~, ~make git~, ~make dev~. Lifecycle verbs: ~make rclone-update~, ~make rclone-uninstall~, ~make phone-update~, ~make phone-uninstall~. Ad-hoc packages: ~install-sys-pkg ripgrep~. Ad-hoc tools: ~install-tool fzf gh:junegunn/fzf 'fzf-{OS}-{ARCH}$$'~. Force full package re-evaluation: ~make clean-state && make <profile>~ (switching profiles does not need clean-state). Inspect before running: ~make -n <goal>~.
-
-Shell completion: ~make <TAB>~ completes every profile, module and verb on PC, phone and pubnix — the shell module stows a user-local bash completion that sees the goal-driven targets the stock one cannot (works with or without the bash-completion package).
+Isolated modules: ~make emacs~, ~make git~, ~make dev~. Ad-hoc packages: ~install-sys-pkg ripgrep~. Ad-hoc tools: ~install-tool fzf gh:junegunn/fzf 'fzf-{OS}-{ARCH}$$'~. Force full package re-evaluation: ~make clean-state && make <profile>~ (switching profiles does not need clean-state). Inspect before running: ~make -n <goal>~.
 
 · Continuous integration
 
@@ -507,8 +465,8 @@ GitHub Actions (~.github/workflows/ci.yml~) exercises the system on every push a
 |-----------------+---------------------------------------------------------------------|
 | ~lint~          | shellcheck + shfmt pass on every script                             |
 | ~debian-image~  | ~docker build~ of the Dockerfile; CLIs and ~dot ls~ inside the image |
-| ~debian-rootless~ | a pubnix simulation: unprivileged user, ~sudo~ on PATH but no rights to it — commissioning + ~make update~ + ~make jq-uninstall~ complete with zero sudo invocations, loud skip asserted, user-local fetch fallbacks |
-| ~termux~        | the full phone profile commissioned inside ~termux/termux-docker~ (with ~termux-exec~ preloaded, as on a device), then a no-op re-run and ~make update~ (host-owned skips) |
+| ~debian-rootless~ | a pubnix simulation: unprivileged user, ~sudo~ and ~cron~ present but never reached — ~MACHINE_TYPE=pubnix~ loud skip (goal export, then env file), user-local fetch fallbacks, standalone ~install-sys-pkg~ verified rootless |
+| ~termux~        | the full phone profile commissioned inside ~termux/termux-docker~ (with ~termux-exec~ preloaded, as on a device), then a no-op re-run |
 
 Image publishing to the codefloe registry stays in ~.crow/publish.yaml~ (cron/manual).
 
@@ -516,7 +474,7 @@ Image publishing to the codefloe registry stays in ~.crow/publish.yaml~ (cron/ma
 
 ~make lint~ runs shellcheck at default severity plus ~shfmt -d~. No blanket suppressions. Exactly two classes of finding are disabled, each inline at its use site with its reason:
 
-1. Dynamic library sources (~# shellcheck source=/dev/null~): ~lib.sh~ resolves through ~$LIB_DIR~ or =~/.local/lib= at runtime.
+1. Dynamic sources (~# shellcheck source=/dev/null~): ~lib.sh~ resolves through ~$LIB_DIR~ or =~/.local/lib= at runtime, and its machine engine sources =~/.config/env/*.env= dynamically.
 2. Deliberate word-splitting in ~install-sys-pkg~: ~$PKGS~ splits line-per-package to deduplicate, and ~$SUDO~ is empty or exactly ~sudo~.
 
 A new warning is fixed, or it joins this list with a justification. Silence is never the default. ~make fmt~ formats in place. ~make review~ sends the latest commit to an AI reviewer with this file (~README.org~) as context; needs network access and is a convenience, not part of the build.
@@ -533,4 +491,4 @@ A new warning is fixed, or it joins this list with a justification. Silence is n
 
 | Alpine, FreeBSD                 | Code paths exist in install-sys-pkg; untested until exercised           |
 
-| Pubnix (Debian/FreeBSD-based)   | Commissioning path above; rootless path simulated in CI (sudo present, unusable); depends on host-provided tools |
+| Pubnix (Debian/FreeBSD-based)   | Commissioning path above; rootless path (sudo present, never reached) exercised in CI; depends on host-provided tools |

@@ -6,14 +6,7 @@ MOD_7ZIP := 1
 DEBIAN_PKGS += 7zip
 TERMUX_PKGS += 7zip
 
-.PHONY: 7zip 7zip-update 7zip-uninstall
+.PHONY: 7zip
 7zip: sys-pkgs
 	@install-tool 7z gh:ip7z/7zip 'linux-{XARCH}\.tar\.xz$$' 7zz
-
-# Self-skips when 7z is host-provided or already the recorded latest.
-7zip-update:
-	@install-tool -u 7z gh:ip7z/7zip 'linux-{XARCH}\.tar\.xz$$' 7zz
-
-7zip-uninstall:
-	@uninstall-tool 7z
 endif

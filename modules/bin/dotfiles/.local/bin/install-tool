@@ -6,11 +6,7 @@
 # here; rootless hosts get the static binary in ~/.local/bin. One rule,
 # every module, no drift.
 #
-# usage: install-tool [-u] <name> <source> [asset-pattern] [archive-binary]
-#   -u                update mode: refresh a tool this gate fetched into
-#                     ~/.local/bin, and only when upstream serves something
-#                     newer (version key recorded by fetch-bin). Tools the
-#                     host provides are never touched.
+# usage: install-tool <name> <source> [asset-pattern] [archive-binary]
 #   <name>            command to look up on PATH and to install as
 #   <source>          fetch-bin source (URL or gh:owner/repo)
 #   [asset-pattern]   regex selecting the release asset
@@ -22,16 +18,8 @@
 # assets, and their static linux builds are what run under Termux.
 set -eu
 
-mode=install
-case "${1:-}" in
--u)
-	mode=update
-	shift
-	;;
-esac
-
 [ $# -ge 2 ] || {
-	echo "usage: install-tool [-u] <name> <source> [asset-pattern] [archive-binary]" >&2
+	echo "usage: install-tool <name> <source> [asset-pattern] [archive-binary]" >&2
 	exit 1
 }
 
@@ -48,6 +36,11 @@ src="$2"
 pat="${3:-}"
 bin="${4:-$1}"
 
+if command -v "$name" >/dev/null 2>&1; then
+	echo "✓ $name already installed ($(command -v "$name"))"
+	exit 0
+fi
+
 case "$OS" in
 android) ASSET_OS="linux" ;;
 *) ASSET_OS="$OS" ;;
@@ -55,35 +48,5 @@ esac
 
 src=$(printf '%s' "$src" | sed -e "s|{OS}|$ASSET_OS|g" -e "s|{ARCH}|$ARCH|g" -e "s|{XARCH}|$XARCH|g")
 pat=$(printf '%s' "$pat" | sed -e "s|{OS}|$ASSET_OS|g" -e "s|{ARCH}|$ARCH|g" -e "s|{XARCH}|$XARCH|g")
-
-LOCAL_BIN="$HOME/.local/bin"
-TOOL_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/system/tools/$name"
-
-if [ "$mode" = update ]; then
-	found=$(command -v "$name" 2>/dev/null || true)
-	if [ -z "$found" ]; then
-		echo "✓ $name not installed; nothing to update"
-		exit 0
-	fi
-	case "$found" in
-	"$LOCAL_BIN"/*) ;;
-	*)
-		echo "✓ $name owned by the host ($found); its package manager updates it"
-		exit 0
-		;;
-	esac
-	key=$(fetch_version_key "$src" "$pat")
-	if [ -s "$TOOL_STATE" ] && [ "$(cat "$TOOL_STATE")" = "$key" ]; then
-		echo "✓ $name already latest"
-		exit 0
-	fi
-	fetch-bin "$src" "$pat" "$bin" "$LOCAL_BIN/$name" # fetch-bin records the new key
-	exit 0
-fi
-
-if command -v "$name" >/dev/null 2>&1; then
-	echo "✓ $name already installed ($(command -v "$name"))"
-	exit 0
-fi
 
 fetch-bin "$src" "$pat" "$bin" "$HOME/.local/bin/$name"

@@ -8,13 +8,7 @@ COMMON_PKGS += pandoc
 DEBIAN_PKGS += emacs-gtk elpa-markdown-mode elpa-magit elpa-yaml-mode
 TERMUX_PKGS += emacs
 
-.PHONY: emacs emacs-update emacs-uninstall
+.PHONY: emacs
 emacs: sys-pkgs git stow
 	@$(stow-module)
-
-emacs-update:
-	@$(call refresh-module,emacs)
-
-emacs-uninstall:
-	@$(call unstow-module,emacs)
 endif
