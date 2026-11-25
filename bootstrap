@@ -7,9 +7,8 @@
 # package installer) and hands off to GNU make.
 #
 # Privilege is install-sys-pkg's problem, stated once there: root or Termux
-# install directly, sudo that validates non-interactively (`sudo -n -v`)
-# prefixes the command, and a rootless host without make fails here with a
-# clear message instead of a cryptic one.
+# install directly, provably usable sudo prefixes the command, and a rootless
+# host without make fails here with a clear message instead of a cryptic one.
 #
 # Layering (see README, Commissioning):
 #   bootstrap <profile>  -> tools only; no secrets needed or touched

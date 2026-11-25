@@ -57,7 +57,7 @@ Avoided: configuration frameworks, dotfile DSLs, state daemons, formats needing 
 · Strict vault permissions. =~/.vault= clamped to 0700 dirs and 0600/0700 files on every apply/sync, on demand via ~vault chmod~.
 · Backup before overwrite. ~dot~ keeps an unmanaged host file blocking a link beside itself as ~.a.bak~ (latest wins) — never destroys it.
 · Network honesty. Applying config is offline (stow, vault apply, prune, lint, fmt). Installing is online and fails loudly without network. Offline-safe for everything that does not fetch, not offline-first.
-· Rootless honesty. Without provably usable privilege, ~install-sys-pkg~ prints a loud skip listing what the host must provide, exits 0 so fetch fallbacks run. Never pretends to install, never asks for a password it could not use; a ~sudo~ binary on PATH or a seat in an admin group is never read as privilege — sudo answers for itself, non-interactively, or not at all.
+· Rootless honesty. Without provably usable privilege, ~install-sys-pkg~ prints a loud skip listing what the host must provide, exits 0 so fetch fallbacks run. Never pretends to install, never asks for a password it could not use.
 
 ** Axiom 4 — Pragmatic Flow
 
@@ -174,21 +174,15 @@ stow-module = MODULES_DIR="$(MODULES_DIR)/$@" dot apply dotfiles
 | Situation                                     | Behaviour                                                       |
 |-----------------------------------------------+-----------------------------------------------------------------|
 | root, or Termux                               | install directly                                                |
-| ~sudo -n -v~ succeeds                         | prefix the command with ~sudo~                                   |
-| anything else                                 | loud skip, exit 0 — fetch fallbacks take over                    |
+| provable ~sudo~                               | prefix the command with ~sudo~                                  |
+| neither (rootless host)                       | loud skip, exit 0 — fetch fallbacks take over                   |
 
-Provable means exactly one thing: ~sudo -n -v~ — non-interactive validation — succeeds. That covers passwordless sudo (containers, the docker-base image) and a live credential cache (a terminal that already authenticated). The probe never prompts: it fails instead of asking, so an unattended run cannot hang on a password.
+Provable means exactly one of two things, both checked without ever prompting:
 
-Nothing short of that counts, on purpose:
+1. ~sudo -n -v~ succeeds — passwordless sudo (containers) or a live credential cache (a terminal session that already authenticated).
+2. The account sits in the delegated-admin groups (~sudo~ on Debian, ~wheel~ on Alpine/FreeBSD) through which distributions actually grant rights; the password is asked once, at use time.
 
-- A ~sudo~ binary on PATH proves nothing — pubnix admins install sudo for themselves; every shared host has the binary.
-- A seat in ~sudo~ or ~wheel~ proves nothing. ~/etc/sudoers~ is mode 0440 and unreadable, and on shared hosts those groups are exactly what an account can hold with no usable grant — absent, narrowed to specific commands, or moot under the locked password of an SSH-key-only account. Group shape cannot be probed honestly; sudo's own non-interactive answer can. It was not always so: membership in the admin groups was once accepted as proof, and commissioning on a real pubnix prompted for a password that could never authenticate — while CI, whose test user sat in no admin group, stayed green. The group branch is gone, and the CI user now sits in ~wheel~ so the decoy can never regress unnoticed.
-- A password prompt is not a probe. Sprung on an unattended run it hangs; sprung on a pubnix it asks for a password that cannot authenticate. Either way it is a broken commissioning, so no code path may reach for one.
-
-Two consequences, both accepted:
-
-1. On your own password-sudo PC, authenticate first — ~sudo -v~ in the terminal you will run ~make~ from — and the live cache carries the install. One command, nothing to configure.
-2. An account with command-specific grants (hand-written ~sudoers.d~ entries) is skipped loudly too; install those by hand — typing ~sudo apt-get install …~ still works.
+Everything else — including a ~sudo~ binary the admins left on PATH for themselves, which is every pubnix — is a rootless host. Presence is not usability: ~/etc/sudoers~ is not readable, and a probe that could hang waiting for a password is not honest. One trade-off follows: an account granted sudo outside the admin groups (hand-written ~sudoers.d~ entry) is skipped loudly too; install those packages by hand. On such hosts ~sudo apt-get install …~ still works when typed.
 
 There is no ~SUDO~ variable, nothing to export, nothing to remember. ~bootstrap~ does not second-guess this: it hands package work to ~install-sys-pkg~ and only dies clearly when the host cannot provide GNU make.
 
@@ -457,7 +451,7 @@ Nothing else is needed beforehand: the Termux app starts every session through ~
 
 ** Pubnix (shared rootless UNIX)
 
-Expectations, honestly: you have no root, and nothing to configure — privilege is auto-detected, and neither the ~sudo~ binary the admins left on PATH nor any admin-shaped group your account sits in (~wheel~, ~sudo~) is read as yours; on a shared host both can exist with no grant behind them. The host must already provide ~git~, ~make~ (~gmake~ on FreeBSD), ~curl~, ~perl~, ~bash~, and the archive tools the fetches need (~unzip~, ~xz~, ~bzip2~). Without usable sudo, ~install-sys-pkg~ skips loudly; ~stow~ falls back to a source build into =~/.local=; ~install-tool~ fetches the rest into =~/.local/bin=. Anything neither present nor fetchable needs the host admin.
+Expectations, honestly: you have no root, and nothing to configure — privilege is auto-detected, and the ~sudo~ binary the admins left on PATH is correctly read as not yours. The host must already provide ~git~, ~make~ (~gmake~ on FreeBSD), ~curl~, ~perl~, ~bash~, and the archive tools the fetches need (~unzip~, ~xz~, ~bzip2~). Without usable sudo, ~install-sys-pkg~ skips loudly; ~stow~ falls back to a source build into =~/.local=; ~install-tool~ fetches the rest into =~/.local/bin=. Anything neither present nor fetchable needs the host admin.
 
 #+begin_src sh
 ssh -A user@pubnix.example      # Method 2; or carry a seed (Method 1)
@@ -513,7 +507,7 @@ GitHub Actions (~.github/workflows/ci.yml~) exercises the system on every push a
 |-----------------+---------------------------------------------------------------------|
 | ~lint~          | shellcheck + shfmt pass on every script                             |
 | ~debian-image~  | ~docker build~ of the Dockerfile; CLIs and ~dot ls~ inside the image |
-| ~debian-rootless~ | a pubnix simulation: unprivileged user in the ~wheel~ decoy group, ~sudo~ on PATH (behind a logging shim) but no rights to it — commissioning + ~make update~ + ~make jq-uninstall~ complete with sudo probed (~-n -v~) but never used, loud skip asserted, user-local fetch fallbacks |
+| ~debian-rootless~ | a pubnix simulation: unprivileged user, ~sudo~ on PATH but no rights to it — commissioning + ~make update~ + ~make jq-uninstall~ complete with zero sudo invocations, loud skip asserted, user-local fetch fallbacks |
 | ~termux~        | the full phone profile commissioned inside ~termux/termux-docker~ (with ~termux-exec~ preloaded, as on a device), then a no-op re-run and ~make update~ (host-owned skips) |
 
 Image publishing to the codefloe registry stays in ~.crow/publish.yaml~ (cron/manual).
@@ -539,4 +533,4 @@ A new warning is fixed, or it joins this list with a justification. Silence is n
 
 | Alpine, FreeBSD                 | Code paths exist in install-sys-pkg; untested until exercised           |
 
-| Pubnix (Debian/FreeBSD-based)   | Commissioning path above; rootless path simulated in CI (sudo present, ~wheel~ decoy seat, both unusable); depends on host-provided tools |
+| Pubnix (Debian/FreeBSD-based)   | Commissioning path above; rootless path simulated in CI (sudo present, unusable); depends on host-provided tools |

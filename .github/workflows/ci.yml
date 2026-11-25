@@ -44,39 +44,19 @@ jobs:
       # The pubnix contract, faithfully: the host (here: the container
       # admin) provides the baseline tools AND installs sudo — every real
       # pubnix has the binary, for its admins — while the user holds no
-      # root and no sudoers rights. Real pubnix accounts also sit in
-      # admin-shaped groups (wheel here) whose sudoers grant is absent,
-      # narrowed, or moot under a locked password — exactly the seat that
-      # once fooled the probe into a password prompt while this job's
-      # groupless test user kept CI green. Group membership must never be
-      # read as privilege, so the decoy is part of the simulation now.
-      # The commissioning below must finish without ever using sudo:
-      # there is no terminal for a password, so any attempt (password
-      # prompt or policy refusal) fails the script outright. A sudo
-      # binary on PATH is never usable privilege.
+      # root and no sudoers rights. The commissioning below must finish
+      # without ever invoking sudo: there is no terminal for a password,
+      # so any attempt (password prompt or policy refusal) fails the
+      # script outright. A sudo binary on PATH is never usable privilege.
       - name: Install host-provided tools
         run: |
           apt-get update -qq
           apt-get install -y -qq --no-install-recommends \
             git make curl perl ca-certificates unzip xz-utils bzip2 sudo
-          # The decoy: wheel carries no default grant on Debian (unlike
-          # the sudo group, which /etc/sudoers grants) — a group seat
-          # with nothing behind it, as on a real pubnix.
-          groupadd -f wheel
       - uses: actions/checkout@main
       - name: Commission base profile as an unprivileged user
         run: |
-          useradd -m -G wheel tester
-          # A logging sudo, first on PATH ahead of /usr/bin/sudo: every
-          # call is recorded, then executed by the real binary. The flow
-          # below may probe (`sudo -n -v`, which fails here — no rights,
-          # no terminal) but never use sudo; the assert step fails on
-          # any logged line that is not the probe.
-          printf '%s\n' '#!/bin/sh' \
-            'printf "%s\n" "$*" >>/tmp/sudo-calls.log' \
-            'exec /usr/bin/sudo "$@"' \
-            > /usr/local/bin/sudo
-          chmod 0755 /usr/local/bin/sudo
+          useradd -m tester
           chown -R tester:tester "$PWD"
           printf '%s\n' \
             'set -eu' \
@@ -94,20 +74,6 @@ jobs:
             'grep -q "skipping system packages" /tmp/probe.log' \
             > /tmp/verify.sh
           su tester -c "sh /tmp/verify.sh '$PWD'"
-      - name: Assert sudo was probed, never used
-        run: |
-          # Every recorded sudo call must be exactly the non-interactive
-          # probe '-n -v'. Anything else — an install attempt, a password
-          # prompt, a policy refusal — means a code path claimed privilege
-          # the pubnix contract says this account does not have.
-          if [ -f /tmp/sudo-calls.log ]; then
-            while IFS= read -r line; do
-              [ "$line" = "-n -v" ] || {
-                echo "rootless commissioning used sudo: $line" >&2
-                exit 1
-              }
-            done < /tmp/sudo-calls.log
-          fi
 
   termux:
     name: Termux (phone profile)

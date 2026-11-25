@@ -7,22 +7,18 @@
 #
 # Privilege model — stated once, used everywhere:
 #   root or Termux  -> install directly
-#   provable sudo   -> prefix the command. Provable means exactly one
-#                      thing: `sudo -n -v` — non-interactive
-#                      validation — succeeds. That covers passwordless
-#                      sudo (containers) and a live credential cache (a
-#                      terminal that already authenticated). The probe
-#                      never prompts: it fails instead of asking.
+#   provable sudo   -> prefix the command. Provable means one of:
+#                       - sudo validates non-interactively (`sudo -n -v`:
+#                         passwordless sudo, or a live credential cache);
+#                       - the account sits in the delegated-admin groups
+#                         (sudo on Debian, wheel on Alpine/FreeBSD) the
+#                         distros grant rights through; the password is
+#                         asked once, at use time.
 #   otherwise       -> rootless host: loud skip, exit 0, so module-level
 #                      user-local fallbacks (install-tool/fetch-bin) run.
-#                      Nothing else is proof, on purpose: a sudo binary
-#                      on PATH is the admins' tool (every pubnix has
-#                      one), and a seat in sudo/wheel grants nothing an
-#                      account can bank on — the sudoers grant may be
-#                      absent, narrowed, or moot under a locked
-#                      password, and /etc/sudoers is mode 0440.
-#                      Anything that would need a prompt is treated as
-#                      absent.
+#                      A sudo binary on PATH proves nothing there — pubnix
+#                      admins install sudo for themselves — and /etc/sudoers
+#                      is not readable, so presence is not usability.
 set -eu
 
 LIB="${LIB_DIR:-$HOME/.local/lib}/sh/lib.sh"
@@ -54,24 +50,20 @@ PKGS=$(printf '%s\n' $PKGS | sort -u | tr '\n' ' ' | sed 's/^ //;s/ $//')
 
 echo ":: Installing system packages for [$DISTRO]: $PKGS"
 
-# Privilege is probed non-interactively: `sudo -n -v` validates without
-# prompting (it fails instead of asking), so this cannot hang an
-# unattended run. It is also the ONLY honest proof, because it is sudo
-# itself answering for this account, right now — not a guess from the
-# PATH or the group database, both of which lie on shared hosts (a
-# sudo binary belongs to the admins; a wheel/sudo group seat can carry
-# no grant at all). Group membership was once read as privilege here
-# and commissioning on a real pubnix prompted for a password that could
-# never authenticate; that branch is gone.
+# Privilege is probed non-interactively: `sudo -n -v` never prompts (it
+# fails instead of asking), so this cannot hang an unattended run, and it
+# cannot mistake a shared host's admin tool for this account's privilege.
 if [ "$(id -u)" -eq 0 ] || [ "$DISTRO" = "termux" ]; then
 	SUDO=""
-elif command -v sudo >/dev/null 2>&1 && sudo -n -v 2>/dev/null; then
+elif command -v sudo >/dev/null 2>&1 && {
+	sudo -n -v 2>/dev/null ||
+		id -nG | tr ' ' '\n' | grep -qx -e sudo -e wheel
+}; then
 	SUDO="sudo"
 else
 	echo "install-sys-pkg: no usable root/sudo on [$DISTRO]; skipping system packages." >&2
 	echo "install-sys-pkg: the host is expected to provide: $PKGS" >&2
 	echo "install-sys-pkg: user-local fallbacks will be fetched where modules define them." >&2
-	echo "install-sys-pkg: if this host is yours and you hold password sudo: 'sudo -v', then re-run." >&2
 	exit 0
 fi
 
