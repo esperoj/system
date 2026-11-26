@@ -8,19 +8,10 @@
 # CLOSED states: DONE, WONTFIX, DUPLICATE
 #+TYP_TODO: TODO(t) IN_PROGRESS(i) WAITING(w) | DONE(d) WONTFIX(x) DUPLICATE(u)
 
-* DONE Add libdir to env and stop duplicating library resolution in scripts
-  Single shared library (~lib/sh/lib.sh~, merged from os.sh + fetch.sh), one
-  two-location contract ($LIB_DIR or ~/.local/lib), sourced once per script.
-
-* DONE Make rclone and friends depend on base for lib and bin?
-  Answer: no dependency needed. Make and bootstrap both prepend the repo's
-  ~modules/bin/dotfiles/.local/bin~ and ~lib~ to PATH/LIB_DIR, so module
-  installers find the CLIs whether or not anything is stowed yet.
-
-* DONE Run pkit-meta and pkit-archive at the same time
-  Both goals now share one ~pkit/clone-dep~ script, each cloning its own
-  directory; shared prerequisites (pkit, vault) are built once by make.
-
-* TODO Create an issues mode for Emacs
-
-* TODO Remove complexity from vault, especially backup features
+* TODO Add tests using bat-core for all modules and update ci too.
+* TODO Add make dev to setup dev env like install bat-core and shfmt, shellcheck, etc.
+* TODO Simplify things if possible without losing features.
+* TODO Add update and uninstall to all modules if not present yet
+* TODO Add autocomplete to all modules that is applicable. For exampt, autocomplete when install rclone, git, restic, etc. Rclone had a guide on add bash autocomplete for it. Only add for bash. Ignore the rest.
+* TODO Add pcsxc2, zahar-emu, ppsspp modules that will will install when need on my desktop but dont add it to desktop profile yet.
+* TODO Add Fcitx module that setup Pinyin chinese simplified and Telex vietnamese keyboard to desktop profile.
