@@ -94,14 +94,9 @@ fetch_resolve_url() {
 
 			# 1. Attempt GitHub REST API (authenticated or unauthenticated)
 			_api_url="https://api.github.com/repos/${_repo}/releases/latest"
-			_auth_header=""
-			[ -n "${GITHUB_TOKEN:-}" ] && _auth_header="Authorization: Bearer ${GITHUB_TOKEN}"
-
-			if [ -n "$_auth_header" ]; then
-				_json=$(curl -fsSL -H "User-Agent: fetch-bin" -H "Accept: application/vnd.github+json" -H "$_auth_header" "$_api_url" 2>/dev/null) || _json=""
-			else
-				_json=$(curl -fsSL -H "User-Agent: fetch-bin" -H "Accept: application/vnd.github+json" "$_api_url" 2>/dev/null) || _json=""
-			fi
+			set -- -fsSL -H "User-Agent: fetch-bin" -H "Accept: application/vnd.github+json"
+			[ -n "${GITHUB_TOKEN:-}" ] && set -- "$@" -H "Authorization: Bearer ${GITHUB_TOKEN}"
+			_json=$(curl "$@" "$_api_url" 2>/dev/null) || _json=""
 
 			if [ -n "$_json" ]; then
 				# If jq is available, use it; otherwise parse with POSIX sed (breaks chicken-and-egg dependency)

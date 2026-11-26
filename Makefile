@@ -46,7 +46,7 @@ include-module = $(if $(filter $1,$(MODULE_SEEN)),,$(eval MODULE_SEEN += $1)$(ev
 APPLIED := $(notdir $(wildcard $(STATE_DIR)/modules/*))
 GOALS := $(sort $(if $(MAKECMDGOALS),$(MAKECMDGOALS),help) $(if $(filter update uninstall,$(MAKECMDGOALS)),$(APPLIED)))
 GOALS := $(sort $(patsubst %-uninstall,%,$(patsubst %-update,%,$(GOALS))))
- $(foreach g,$(GOALS),$(call include-module,$(g)))
+$(foreach g,$(GOALS),$(call include-module,$(g)))
 
 # --- Export Accumulated Sets to Subprocesses ---
 export COMMON_PKGS DEBIAN_PKGS TERMUX_PKGS ALPINE_PKGS FREEBSD_PKGS
@@ -116,7 +116,7 @@ uninstall:
 	echo "Modules recorded applied on this node: $(APPLIED)"
 
 # --- Shared Shell Script Finder ---
-FIND_SHELL = find bootstrap modules -type f \( -name '*.sh' -o -name 'configure' -o -name 'install' -o -name 'uninstall' -o -name 'setup' -o -name 'bootstrap' -o -path '*/.local/bin/*' -o -path '*/.local/lib/sh/*' \) -print0
+FIND_SHELL = find bootstrap modules -type f \( -name '*.sh' -o -name 'configure' -o -name 'install' -o -name 'uninstall' -o -name 'setup' -o -name 'bootstrap' -o -name 'clone-dep' -o -name 'run' -o -path '*/.local/bin/*' -o -path '*/.local/lib/sh/*' \) -print0
 
 help:
 	@echo "Usage: make <target>"

@@ -9,7 +9,7 @@
 #
 # Destination: ~/.local/share/bash-completion/completions (XDG-aware),
 # which bash-completion >= 2.12 loads lazily on first Tab and .profile
-# sources eagerly on nodes without the package (README, Daily operation).
+# sources eagerly for every interactive bash (README, Daily operation).
 # A completion is garnish, not an install: a generator that fails warns
 # and moves on -- the install itself is install-tool's business.
 #
@@ -54,7 +54,7 @@ for cmd in "$@"; do
 	tmp="$COMP_DIR/.$cmd.tmp"
 	if ! emit "$cmd" "$tmp"; then
 		rm -f "$tmp"
-		echo "completion: $cmd: generator failed; completion left to the host" >&2
+		echo "completion: $cmd: generator failed; no completion written" >&2
 		continue
 	fi
 	mv -f "$tmp" "$COMP_DIR/$cmd"

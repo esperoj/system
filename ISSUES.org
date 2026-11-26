@@ -76,5 +76,22 @@
   good. The default is now =mkdir -p= as the directory it names; an
   explicit [dest-path] keeps the file-or-directory contract. The
   multi-hop fetch-bin test installs into a fresh HOME, pinning it.
-* TODO use ~/.local/share/bash-completion/completions for completions if install not using system package rather than left to host. Check if i need to source it on launch or not etc. the idea to make sure to have completions install without root.
+* DONE use ~/.local/share/bash-completion/completions for completions if install not using system package rather than left to host. Check if i need to source it on launch or not etc. the idea to make sure to have completions install without root.
+  The `completion` CLI already had the shape this asks for: the file is
+  written into ~/.local/share/bash-completion/completions (XDG-aware),
+  never a system dir, so a rootless node gets its completions without
+  root — generated from the installed tool itself either way it was
+  installed, which is stronger than the ask. Verified and closed: the
+  "do I source it on launch" answer — bash-completion >= 2.12 lazy-loads
+  that directory on first Tab; .profile sources every file there for
+  interactive bash regardless, which is what carries pubnix/Termux nodes
+  without the package — is now pinned by tests (a probe completion
+  sourced through .profile defines its function; the module's make
+  completion registers for make and m and sees this repo's goals). Two
+  honest tightenings came out of the proofread: .profile's loop became
+  XDG-aware like the CLI, the generic -uninstall verb and bash-completion
+  itself (on a custom XDG_DATA_HOME host, CLI-written completions now
+  actually load); and a failed generator no longer claims the completion
+  is "left to the host" — nothing user-local was ever the host's to
+  provide — it says no completion written, and the next apply retries.
 

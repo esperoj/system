@@ -28,16 +28,19 @@ load_all_envs
 # bash-completion package (>= 2.12 loads this same directory lazily on its
 # own): make's target completion (this module, quiet outside the system
 # repo) plus whatever the modules installed user-locally — rclone, restic,
-# git, written by the `completion` CLI (README, Daily operation). Sourced
+# git, written by the `completion` CLI into the XDG-aware directory it and
+# the generic -uninstall verb both use (README, Daily operation). Sourced
 # from here — not from .bashrc — because .bashrc already chains through
 # .profile, so login and non-login shells get each file exactly once:
 # Debian desktop, Termux phone, rootless pubnix alike.
-if [ -n "${BASH_VERSION:-}" ] && [ -d "$HOME/.local/share/bash-completion/completions" ]; then
-    for _comp in "$HOME/.local/share/bash-completion/completions"/*; do
+_comp_dir="${XDG_DATA_HOME:-$HOME/.local/share}/bash-completion/completions"
+if [ -n "${BASH_VERSION:-}" ] && [ -d "$_comp_dir" ]; then
+    for _comp in "$_comp_dir"/*; do
         [ -f "$_comp" ] || continue
         . "$_comp"
     done
 fi
+unset _comp_dir _comp
 
 _HOSTNAME=$(hostname 2>/dev/null || uname -n)
 
@@ -63,4 +66,4 @@ if [ "$_HOSTNAME" = "bsd.tilde.team" ]; then
     done
 fi
 
-unset _HOSTNAME _py_path _env_dir _f _comp
+unset _HOSTNAME _py_path _env_dir _f
