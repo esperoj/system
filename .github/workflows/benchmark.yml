@@ -1,28 +1,19 @@
-name: Runner Benchmark (YABS)
+
+name: Runner Benchmark (YABS + NWS)
 
 on:
   workflow_dispatch:
-    inputs:
-      yabs_flags:
-        description: "Extra yabs.sh flags"
-        required: false
-        default: "-b -i"   # -b: pre-compiled binaries, -i: skip iperf3 (noisy/blocked from runners)
 
 concurrency:
-  group: yabs-${{ github.ref }}
+  group: benchmark-${{ github.ref }}
   cancel-in-progress: false
-
-env:
-  # Pin the script so x64/arm64 runs and future runs stay comparable.
-  # Grab the current commit SHA from https://github.com/masonr/yet-another-bench-script/commits/master
-  YABS_REF: master
-  YABS_SHA256: ""          # optional: paste sha256 of the pinned script to fail on change
 
 jobs:
   bench:
-    name: yabs (${{ matrix.runon }} / ${{ matrix.arch }})
+    name: Benchmark (${{ matrix.arch }})
     runs-on: ${{ matrix.runon }}
     timeout-minutes: 40
+
     strategy:
       fail-fast: false
       matrix:
@@ -36,49 +27,32 @@ jobs:
       - name: Inspect machine
         run: |
           uname -a
-          lscpu | grep -E 'Model name|^CPU\(s\)|Thread|Socket|Architecture'
-          free -h; df -h /
+          lscpu
+          free -h
+          df -h /
 
-      - name: Fetch yabs.sh
+      - name: Run YABS
         run: |
-          set -euo pipefail
           mkdir -p out
-          curl -fsSL "https://raw.githubusercontent.com/masonr/yet-another-bench-script/${YABS_REF}/yabs.sh" -o yabs.sh
-          echo "fetched yabs.sh ($(wc -l < yabs.sh) lines, sha256 $(sha256sum yabs.sh | cut -d' ' -f1))"
-          if [ -n "$YABS_SHA256" ]; then
-            echo "$YABS_SHA256  yabs.sh" | sha256sum -c -
-          fi
-          chmod +x yabs.sh
-          ./yabs.sh -h || true
+          LOG="out/yabs-$(date -u +%Y%m%dT%H%M%SZ).txt"
 
-      - name: Run benchmark
-        id: run
+          set -o pipefail
+          curl -sL yabs.sh | bash 2>&1 | tee "$LOG"
+
+      - name: Run NWS
         run: |
-          set -uo pipefail
-          STAMP=$(date -u +%Y%m%dT%H%M%SZ)
-          LOG="out/yabs-${STAMP}.txt"
+          mkdir -p out
+          LOG="out/nws-$(date -u +%Y%m%dT%H%M%SZ).txt"
 
-          # tee so the log survives even on failure; capture exit code separately
-          ./yabs.sh ${{ inputs.yabs_flags }} 2>&1 | tee "$LOG"
-          rc=${PIPESTATUS[0]}
-
-          # Also emit machine-readable JSON (-j prints JSON to stdout) for arch diffing
-          ./yabs.sh ${{ inputs.yabs_flags }} -j -g -f 2>&1 | tee "out/yabs-${STAMP}.json.txt" >/dev/null || true
-
-          {
-            echo "### YABS — ${{ matrix.runon }} (${{ matrix.arch }})"
-            echo '```'
-            tail -n 120 "\$LOG"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          exit "$rc"
+          set -o pipefail
+          curl -sL nws.sh | bash 2>&1 | tee "$LOG"
 
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: yabs-${{ matrix.arch }}
+          name: benchmark-${{ matrix.arch }}
           path: out/
           if-no-files-found: warn
           retention-days: 90
+
