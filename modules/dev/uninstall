@@ -1,0 +1,18 @@
+#!/bin/sh
+# dev uninstall - the mirror of modules/dev/install: drop the bats-core
+# tree (launcher, libexec, lib, man pages) and its release record, plus
+# the shfmt and shellcheck binaries install-tool fetched. Host-provided
+# copies are never touched; uninstall-tool reports them instead.
+set -eu
+
+rm -f "$HOME/.local/bin/bats" \
+	"$HOME/.local/share/man/man1/bats.1" \
+	"$HOME/.local/share/man/man7/bats.7"
+rm -rf "$HOME/.local/libexec/bats-core" \
+	"$HOME/.local/lib/bats-core" \
+	"${XDG_STATE_HOME:-$HOME/.local/state}/system/tools/bats"
+
+uninstall-tool shfmt
+uninstall-tool shellcheck
+
+echo "✓ dev toolchain removed from $HOME/.local"

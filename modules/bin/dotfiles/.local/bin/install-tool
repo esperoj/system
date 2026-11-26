@@ -15,8 +15,9 @@
 #   [asset-pattern]   regex selecting the release asset
 #   [archive-binary]  binary name inside the archive, when it differs
 #
-# Placeholders {OS} {ARCH} {XARCH} are substituted from the OS engine
-# (lib.sh): ARCH is Go-style (amd64), XARCH is vendor-style (x64).
+# Placeholders {OS} {ARCH} {XARCH} {UARCH} are substituted from the OS
+# engine (lib.sh): ARCH is Go-style (amd64), XARCH is vendor-style (x64),
+# UARCH is uname-style (x86_64).
 # {OS} maps android to linux: upstream archives never publish "android"
 # assets, and their static linux builds are what run under Termux.
 #
@@ -71,8 +72,8 @@ android) ASSET_OS="linux" ;;
 *) ASSET_OS="$OS" ;;
 esac
 
-src=$(printf '%s' "$src" | sed -e "s|{OS}|$ASSET_OS|g" -e "s|{ARCH}|$ARCH|g" -e "s|{XARCH}|$XARCH|g")
-pat=$(printf '%s' "$pat" | sed -e "s|{OS}|$ASSET_OS|g" -e "s|{ARCH}|$ARCH|g" -e "s|{XARCH}|$XARCH|g")
+src=$(printf '%s' "$src" | sed -e "s|{OS}|$ASSET_OS|g" -e "s|{ARCH}|$ARCH|g" -e "s|{XARCH}|$XARCH|g" -e "s|{UARCH}|$UARCH|g")
+pat=$(printf '%s' "$pat" | sed -e "s|{OS}|$ASSET_OS|g" -e "s|{ARCH}|$ARCH|g" -e "s|{XARCH}|$XARCH|g" -e "s|{UARCH}|$UARCH|g")
 
 # The release identity, recorded at fetch time and compared on --update:
 #   - a gh: source resolves to a versioned URL (the tag rides in the path),

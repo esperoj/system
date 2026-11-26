@@ -6,6 +6,7 @@ TERMUX_PKGS += restic
 .PHONY: restic restic-update
 restic: sys-pkgs
 	@install-tool restic gh:restic/restic '{OS}_{ARCH}\.bz2$$'
+	@completion restic
 	@$(mark-applied)
 
 restic-update: restic

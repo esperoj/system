@@ -24,14 +24,18 @@ mark-applied = mkdir -p "$(STATE_DIR)/modules" && touch "$(STATE_DIR)/modules/$@
 
 # --- The One Include Idiom ---
 # Every module inclusion — goal-driven here, profile-driven in the module
-# makefiles — goes through include-module, which reads the file once and
-# records it in MODULE_SEEN so no module is read twice per run. That is a
-# correctness rule, not an optimization: make's conditional scanner cannot
-# skip a guarded file whose recipes open lines with shell conditional words
-# (if/else/fi) — it reads the `else` as its own. Keep such logic in module
-# scripts; vault.mk's if/else recipe stays single-read behind this macro.
+# makefiles — goes through include-module, which reads a module once per
+# run: the seen check lives in the macro itself, so it holds for every
+# caller (the GOALS loop here and the module lists alike) — a combined
+# invocation like `make base pkit-archive` reaches vault through two lists
+# and used to read vault.mk twice, tripping make's scanner on its if/else
+# recipe (the `else` reads as a recipe before any target).
+# That is a correctness rule, not an optimization: make's conditional
+# scanner cannot skip a guarded file whose recipes open lines with shell
+# conditional words (if/else/fi). Keep such logic in module scripts;
+# vault.mk's if/else recipe stays single-read behind this macro.
 MODULE_SEEN :=
-include-module = $(eval MODULE_SEEN += $1)$(eval -include modules/$1/$1.mk)
+include-module = $(if $(filter $1,$(MODULE_SEEN)),,$(eval MODULE_SEEN += $1)$(eval -include modules/$1/$1.mk))
 
 # --- Goal-Driven Dynamic Inclusion ---
 # $(sort) also removes duplicates, so goals are unique + sorted.
@@ -42,7 +46,7 @@ include-module = $(eval MODULE_SEEN += $1)$(eval -include modules/$1/$1.mk)
 APPLIED := $(notdir $(wildcard $(STATE_DIR)/modules/*))
 GOALS := $(sort $(if $(MAKECMDGOALS),$(MAKECMDGOALS),help) $(if $(filter update uninstall,$(MAKECMDGOALS)),$(APPLIED)))
 GOALS := $(sort $(patsubst %-uninstall,%,$(patsubst %-update,%,$(GOALS))))
- $(foreach g,$(GOALS),$(if $(filter $(g),$(MODULE_SEEN)),,$(call include-module,$(g))))
+ $(foreach g,$(GOALS),$(call include-module,$(g)))
 
 # --- Export Accumulated Sets to Subprocesses ---
 export COMMON_PKGS DEBIAN_PKGS TERMUX_PKGS ALPINE_PKGS FREEBSD_PKGS
@@ -66,7 +70,7 @@ $(STAMP):
 	install-sys-pkg
 	touch $@
 
-.PHONY: sys-pkgs clean-state help lint fmt review setup-remotes update uninstall
+.PHONY: sys-pkgs clean-state help lint fmt review setup-remotes update uninstall test
 
 sys-pkgs: $(STAMP)
 
@@ -81,7 +85,8 @@ clean-state:
 #   %-update      re-apply the goal: stow relinks whatever `git pull` brought,
 #                 the package barrier and PATH guards skip finished work.
 #   %-uninstall   unstow the module's dotfiles, drop fetched tools that
-#                 install-tool recorded, forget the applied stamp. System
+#                 install-tool recorded, remove the bash completion
+#                 `completion` wrote, forget the applied stamp. System
 #                 packages are the host's, and are reported, not removed.
 %-update: %
 	@echo ":: $* re-applied"
@@ -92,7 +97,8 @@ clean-state:
 	if [ -d "$${XDG_STATE_HOME:-$$HOME/.local/state}/system/tools/$*" ]; then
 	    uninstall-tool "$*"
 	fi
-	rm -f "$(STATE_DIR)/modules/$*"
+	rm -f "$(STATE_DIR)/modules/$*" \
+	    "$${XDG_DATA_HOME:-$$HOME/.local/share}/bash-completion/completions/$*"
 	echo ":: $* uninstalled (system packages, if any, remain the host's)"
 
 # `make update`: every module recorded applied, in one DAG, one process.
@@ -130,6 +136,7 @@ help:
 	echo ""
 	echo "Utility targets:"
 	echo "  help         Show this help"
+	echo "  test         Run the bats suite in tests/ (make dev installs bats)"
 	echo "  lint         Run shellcheck and shfmt checks (read-only)"
 	echo "  fmt          Format shell scripts in-place using shfmt"
 	echo "  review       Run Aider review on the latest commit"
@@ -140,6 +147,19 @@ help:
 	echo "  <m>-uninstall remove one module, e.g. make rclone-uninstall"
 	echo "  update        refresh every module recorded applied (fetched"
 	echo "                tools re-download only when upstream changed)"
+
+# --- Test Suite --------------------------------------------------------
+# bats over tests/: contract tests for the module layer and behaviour
+# tests for the CLIs, all hermetic (mocks, sandbox HOMEs, no network).
+# The runner is the one tool make dev guarantees everywhere.
+test:
+	@if command -v bats >/dev/null 2>&1; then
+	    echo ":: Running bats test suite..."
+	    bats tests
+	else
+	    echo "test: bats not found; run 'make dev' (or install bats-core) first" >&2
+	    exit 1
+	fi
 
 lint:
 	@rc=0

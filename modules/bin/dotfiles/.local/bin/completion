@@ -1,0 +1,62 @@
+#!/bin/sh
+# completion - install the bash completion for tools that ship one.
+#
+# The file is generated from the installed tool itself, so it can never
+# drift from the binary it will complete: rclone and restic emit their
+# own script, git's is fetched from the upstream tag matching the
+# installed version. Tools without a generator are skipped loudly.
+# Bash only, deliberately: one shell, done well (see ISSUES.org).
+#
+# Destination: ~/.local/share/bash-completion/completions (XDG-aware),
+# which bash-completion >= 2.12 loads lazily on first Tab and .profile
+# sources eagerly on nodes without the package (README, Daily operation).
+# A completion is garnish, not an install: a generator that fails warns
+# and moves on -- the install itself is install-tool's business.
+#
+# usage: completion <command>...
+set -eu
+
+COMP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/bash-completion/completions"
+
+# emit <cmd> <path>: write the completion script to path; fails loud
+# when the tool cannot emit it (the caller downgrades that to a warning).
+emit() {
+	cmd="$1"
+	dest="$2"
+	case "$cmd" in
+	rclone) rclone completion bash >"$dest" ;;
+	restic) restic generate --bash-completion "$dest" ;;
+	git)
+		ver=$(git --version | sed -n 's/^git version \([0-9][0-9.]*\).*/\1/p')
+		[ -n "$ver" ] || {
+			echo "completion: git: unreadable version" >&2
+			return 1
+		}
+		curl -fsSL -o "$dest" \
+			"https://raw.githubusercontent.com/git/git/v${ver}/contrib/completion/git-completion.bash"
+		;;
+	esac
+}
+
+for cmd in "$@"; do
+	if ! command -v "$cmd" >/dev/null 2>&1; then
+		echo "completion: $cmd not on PATH; skipped" >&2
+		continue
+	fi
+	case "$cmd" in
+	rclone | restic | git) ;;
+	*)
+		echo "completion: no bash generator for $cmd; skipped" >&2
+		continue
+		;;
+	esac
+	mkdir -p "$COMP_DIR"
+	tmp="$COMP_DIR/.$cmd.tmp"
+	if ! emit "$cmd" "$tmp"; then
+		rm -f "$tmp"
+		echo "completion: $cmd: generator failed; completion left to the host" >&2
+		continue
+	fi
+	mv -f "$tmp" "$COMP_DIR/$cmd"
+	echo "✓ bash completion installed for $cmd"
+done

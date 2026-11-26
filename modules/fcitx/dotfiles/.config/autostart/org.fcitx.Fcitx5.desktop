@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=Fcitx 5
+Comment=Start the input method daemon
+Exec=fcitx5

@@ -1,0 +1,35 @@
+# Fcitx5's input-method group file (parsed by fcitx5 itself, written in
+# the schema it serialises: [Groups/N], [Groups/N/Items/M], GroupOrder).
+# The whole input-method setup in one declarable file: the keyboard,
+# Pinyin (Simplified Chinese) and Unikey (Vietnamese, Telex by default).
+# fcitx5 rewrites this file when input methods are changed in its
+# configuration GUI; the next module apply re-declares ours the usual
+# way (dot keeps the changed file beside itself as .profile.bak first).
+[Groups/0]
+# Group Name
+Name=Default
+# Layout
+Default Layout=us
+# Default Input Method
+DefaultIM=pinyin
+
+[Groups/0/Items/0]
+# Name
+Name=keyboard-us
+# Layout
+Layout=us
+
+[Groups/0/Items/1]
+# Name
+Name=pinyin
+# Layout
+Layout=us
+
+[Groups/0/Items/2]
+# Name
+Name=unikey
+# Layout
+Layout=us
+
+[GroupOrder]
+0=Default

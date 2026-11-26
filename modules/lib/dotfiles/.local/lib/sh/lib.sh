@@ -2,7 +2,7 @@
 # lib.sh - the system's single shared shell library.
 # Resolved through the two-location contract: $LIB_DIR (set by Make or
 # bootstrap, pointing at the repo) or ~/.local/lib (installed, standalone).
-# Sections: OS engine (exports OS DISTRO ARCH XARCH), machine engine
+# Sections: OS engine (exports OS DISTRO ARCH XARCH UARCH), machine engine
 # (resolves MACHINE_TYPE: explicit environment first, then
 # ~/.config/env/*.env) and fetch engine (URL resolution, download,
 # extraction — used by fetch-bin).
@@ -39,7 +39,9 @@ FreeBSD)
 esac
 
 # ARCH: Go/Debian-style names. XARCH: the vendor style some release
-# archives use instead (7zip names amd64 "x64").
+# archives use instead (7zip names amd64 "x64"). UARCH: the uname style a
+# few upstreams name assets with instead (ppsspp, shellcheck: x86_64).
+UARCH="$_uname_m"
 case "$_uname_m" in
 x86_64) ARCH="amd64" XARCH="x64" ;;
 aarch64 | arm64) ARCH="arm64" XARCH="arm64" ;;
@@ -48,7 +50,7 @@ i386 | i686) ARCH="386" XARCH="386" ;;
 *) ARCH="$_uname_m" XARCH="$_uname_m" ;;
 esac
 
-export OS DISTRO ARCH XARCH
+export OS DISTRO ARCH XARCH UARCH
 unset _uname_s _uname_m
 
 # --- Machine engine ----------------------------------------------------

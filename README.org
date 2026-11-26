@@ -188,7 +188,7 @@ Every module tool goes through one gate — ~install-tool [--update] <name> <sou
 
 ~--update~ refreshes an already-fetched tool: the latest release is compared with the recorded one (~/.local/state/system/tools/<name>/url) and the binary re-fetched only when the release actually changed — "already latest" is not a download. Host-provided copies are reported, never fetched over.
 
-So the same one-line rule covers every node type: Debian installs ~jq~ through apt and skips the fetch; Termux installs it through ~pkg~ and skips; a pubnix fetches it. Patterns may use placeholders substituted from the OS engine — ~{OS}~, ~{ARCH}~ (Go-style ~amd64~), ~{XARCH}~ (vendor-style ~x64~, as 7zip names it). On Termux ~{OS}~ substitutes ~linux~, because upstream archives never publish "android" assets — their static linux builds are what run there:
+So the same one-line rule covers every node type: Debian installs ~jq~ through apt and skips the fetch; Termux installs it through ~pkg~ and skips; a pubnix fetches it. Patterns may use placeholders substituted from the OS engine — ~{OS}~, ~{ARCH}~ (Go-style ~amd64~), ~{XARCH}~ (vendor-style ~x64~, as 7zip names it), ~{UARCH}~ (uname-style ~x86_64~, as ppsspp and shellcheck name them). On Termux ~{OS}~ substitutes ~linux~, because upstream archives never publish "android" assets — their static linux builds are what run there:
 
 #+begin_src makefile
 .PHONY: jq
@@ -303,19 +303,22 @@ This is why ~docker-base~ (and any profile) is secret-optional: in a disposable 
 ├── Makefile                   # DAG builder, package-set-keyed stamps
 ├── Dockerfile                 # Debian 13-slim container image
 ├── README.org                 # this document
-├── .github/workflows/ci.yml   # lint + debian image + rootless + termux tests
+├── .github/workflows/ci.yml   # lint + test + debian image + rootless + termux
 ├── .crow/publish.yaml         # codefloe image publish
 ├── modules/
 │   ├── base/                  # core profile: the tools layer
-│   ├── bin/                   # dot, vault, install-sys-pkg, install-tool, fetch-bin, ...
+│   ├── bin/                   # dot, vault, install-sys-pkg, install-tool, fetch-bin, completion, ...
 │   ├── lib/                   # lib.sh (single shared shell library)
 │   ├── vault/                 # secrets layer (VAULT_MODULES default lives here)
-│   ├── crontab/ desktop/ dev/ docker-base/ emacs/ env/
+│   ├── crontab/ desktop/ dev/ docker-base/ emacs/ env/ fcitx/
 │   ├── phone/ pubnix/ recipes/ shell/ ssh/ stow/ wireproxy/
+│   ├── pcsx2/ ppsspp/ azahar/ # on-demand emulators (not in any profile)
+├── tests/                     # bats suite: make test (make dev installs the runner)
 └── .state/                    # ephemeral stamps (git-ignored, disposable)
 #+end_example
 
-Each module: ~<name>.mk~ (rules, packages, verbs, include guard), ~dotfiles/~ (stowed files), optional ~install~ (only for tools needing more than a fetch), optional ~uninstall~ (the install's mirror).
+Each module: ~<name>.mk~ (rules, packages, verbs, include guard), ~dotfiles/~ (stowed files), optional ~install~ (only for tools needing more than a fetch), optional ~uninstall~ (the install's mirror). ~dev~ is the shape for a module that carries a toolchain: packages where the distro ships them, fetch fallbacks where it does not (bats-core like stow, shfmt and shellcheck as single binaries), both verbs explicit.
+
 
 · Commissioning a node
 
@@ -477,11 +480,12 @@ cd ~/projects/system
 git pull --rebase
 make desktop                    # or phone / pubnix / docker-base
 make update                     # refresh tools + re-apply, skips intact
+make test                      # the bats suite, after `make dev` once
 dot prune                       # after pulls that removed files
 vault sync                      # honest exit codes
 #+end_src
 
-Tab completion for make targets — and for ~m~, the repo-aware wrapper in .bashrc — follows the shell module everywhere: .profile sources the completion for interactive bash, with or without the bash-completion package (Debian desktop, Termux phone, rootless pubnix), and it stays quiet in any other directory.
+Tab completion follows the shell module everywhere, and .profile sources every file in =~/.local/share/bash-completion/completions= for interactive bash, with or without the bash-completion package (which at 2.12 or later loads the same directory lazily on its own): the make-target completion (and ~m~, the repo-aware wrapper in .bashrc — quiet in any other directory) plus the ones the modules install through ~completion~ — one small CLI whose generator is the freshly installed tool itself, so the file can never drift from the binary it completes: ~make rclone~ runs ~rclone completion bash~, ~make restic~ runs ~restic generate --bash-completion~, ~make git~ fetches the upstream tag matching the installed git. A failed generator warns and moves on — garnish, not the install. Bash only, deliberately. ~<module>-uninstall~ drops the file again.
 
 Isolated modules: ~make emacs~, ~make git~, ~make dev~. Refresh one module: ~make rclone-update~; refresh everything recorded applied: ~make update~ (fetched tools re-download only when upstream changed; everything else re-applies with skips). Remove one module: ~make restic-uninstall~. Ad-hoc packages: ~install-sys-pkg ripgrep~. Ad-hoc tools: ~install-tool fzf gh:junegunn/fzf 'fzf-{OS}-{ARCH}$$'~. Force full package re-evaluation: ~make clean-state && make <profile>~ (switching profiles does not need clean-state; it also forgets the applied set, which a profile run re-records). Inspect before running: ~make -n <goal>~.
 
@@ -492,6 +496,7 @@ GitHub Actions (~.github/workflows/ci.yml~) exercises the system on every push a
 | Job             | What it proves                                                      |
 |-----------------+---------------------------------------------------------------------|
 | ~lint~          | shellcheck + shfmt pass on every script                             |
+| ~test~          | the bats suite (pinned bats-core): module contracts and CLI behaviour, hermetic — sandbox HOMEs, mocked tools, zero network |
 | ~debian-image~  | ~docker build~ of the Dockerfile; CLIs and ~dot ls~ inside the image |
 | ~debian-rootless~ | a pubnix simulation: unprivileged user, ~sudo~ and ~cron~ present but never reached — ~MACHINE_TYPE=pubnix~ loud skip (goal export, then env file), user-local fetch fallbacks, standalone ~install-sys-pkg~ verified rootless, then ~make update~ proving the no-op path (records compared, nothing re-downloaded) |
 | ~termux~        | the full phone profile commissioned inside ~termux/termux-docker~ (with ~termux-exec~ preloaded, as on a device), then a no-op re-run and ~make update~ |
@@ -506,6 +511,10 @@ Image publishing to the codefloe registry stays in ~.crow/publish.yaml~ (cron/ma
 2. Deliberate word-splitting in ~install-sys-pkg~: ~$PKGS~ splits line-per-package to deduplicate, and ~$SUDO~ is empty or exactly ~sudo~.
 
 A new warning is fixed, or it joins this list with a justification. Silence is never the default. ~make fmt~ formats in place. ~make review~ sends the latest commit to an AI reviewer with this file (~README.org~) as context; needs network access and is a convenience, not part of the build.
+
+** The test suite
+
+~make test~ runs bats over ~tests/~: the module contract (every module has its guarded makefile, and every goal plus both ~-update~ / ~-uninstall~ verbs parses through the goal-driven inclusion) and the behaviour of the CLIs — ~dot~ against a real stow in a sandbox HOME, ~vault~ against git, the privilege and PATH rules of the installers, lib.sh's engines behind a mocked ~uname~, the completion CLI behind mocked tools. Every test is hermetic: a disposable HOME, PATH mocks, no network. The runner itself is the one tool ~make dev~ guarantees on every node the dev module runs on; CI pins bats-core 1.14.0 beside ~make lint~. The suite already paid for itself once: parsing every module goal at once exposed a double read of vault.mk — the include-once guard now lives inside ~include-module~.
 
 · Host support, honestly
 

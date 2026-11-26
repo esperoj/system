@@ -6,6 +6,7 @@ TERMUX_PKGS += rclone
 .PHONY: rclone rclone-update
 rclone: sys-pkgs
 	@install-tool rclone gh:rclone/rclone '{OS}-{ARCH}\.zip$$'
+	@completion rclone
 	@$(mark-applied)
 
 rclone-update: rclone

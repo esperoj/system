@@ -7,5 +7,6 @@ COMMON_PKGS += git
 
 .PHONY: git
 git: sys-pkgs ssh
+	@completion git
 	@$(mark-applied)
 endif

@@ -4,7 +4,7 @@ MOD_DESKTOP := 1
 # Machine identity for recipes: the goal is the machine (see pubnix.mk).
 export MACHINE_TYPE := desktop
 
-DESKTOP_MODULES := base restic dev anki keepassxc firefox emacs xclip wireproxy
+DESKTOP_MODULES := base restic dev anki keepassxc firefox emacs xclip wireproxy fcitx
 $(foreach d,$(DESKTOP_MODULES),$(call include-module,$d))
 
 COMMON_PKGS += tk tcl eza

@@ -1,0 +1,6 @@
+# X sessions start through /etc/X11/Xsession, which sources this file
+# (40x11-common_xsessionrc); sourcing .profile here is how the
+# ~/.config/env files (the input-method environment, PATH) reach the
+# whole session instead of only login shells. Without it fcitx5 starts
+# into a session where the toolkits never learn its name.
+. "$HOME/.profile"

@@ -8,10 +8,40 @@
 # CLOSED states: DONE, WONTFIX, DUPLICATE
 #+TYP_TODO: TODO(t) IN_PROGRESS(i) WAITING(w) | DONE(d) WONTFIX(x) DUPLICATE(u)
 
-* TODO Add tests using bat-core for all modules and update ci too.
-* TODO Add make dev to setup dev env like install bat-core and shfmt, shellcheck, etc.
-* TODO Simplify things if possible without losing features.
-* TODO Add update and uninstall to all modules if not present yet
-* TODO Add autocomplete to all modules that is applicable. For exampt, autocomplete when install rclone, git, restic, etc. Rclone had a guide on add bash autocomplete for it. Only add for bash. Ignore the rest.
-* TODO Add pcsxc2, zahar-emu, ppsspp modules that will will install when need on my desktop but dont add it to desktop profile yet.
-* TODO Add Fcitx module that setup Pinyin chinese simplified and Telex vietnamese keyboard to desktop profile.
+* DONE Add tests using bat-core for all modules and update ci too.
+  tests/ is the bats-core suite: module contracts (guarded makefile, every
+  goal and both verbs parse) and CLI behaviour, all hermetic. `make test`
+  runs it; CI gained a `test` job beside `lint` with a pinned bats-core.
+* DONE Add make dev to setup dev env like install bat-core and shfmt, shellcheck, etc.
+  `make dev` now guarantees all three everywhere it runs: the distro
+  packages win when present, fetch fallbacks otherwise — bats-core like
+  stow (pinned tarball into ~/.local), shfmt and shellcheck as single
+  binaries through install-tool.
+* DONE Simplify things if possible without losing features.
+  Held to while resolving everything else: one new CLI (completion) and one
+  new install script (dev) cover five features; .profile's make-completion
+  special case became one directory loop; the arch vocabulary gained a
+  third placeholder instead of per-module hardcoded patterns; and the
+  include-once guard moved inside include-module, fixing a real double-read
+  bug the new suite caught.
+* DONE Add update and uninstall to all modules if not present yet
+  The generic %-update / %-uninstall pattern rules already carried every
+  module; the gaps were the fetched-tool modules without an explicit
+  mirror — dev gained dev-update/dev-uninstall, the emulator modules ship
+  their verbs, and a test now asserts both verbs parse for every module.
+* DONE Add autocomplete to all modules that is applicable. For exampt, autocomplete when install rclone, git, restic, etc. Rclone had a guide on add bash autocomplete for it. Only add for bash. Ignore the rest.
+  The `completion` CLI generates the file from the installed tool itself
+  (rclone/restic emit their own script; git's comes from the matching
+  upstream tag) into ~/.local/share/bash-completion/completions — loaded
+  lazily by bash-completion >= 2.12, sourced eagerly by .profile without
+  it. Bash only. Uninstall drops the file.
+* DONE Add pcsxc2, zahar-emu, ppsspp modules that will will install when need on my desktop but dont add it to desktop profile yet.
+  Resolved as the PS2, 3DS and PSP emulators: modules pcsx2, azahar (the
+  azahar-emu/azahar repo), ppsspp — each an install-tool fetch of the
+  upstream AppImage plus an explicit -update verb, on demand by name,
+  in no profile.
+* DONE Add Fcitx module that setup Pinyin chinese simplified and Telex vietnamese keyboard to desktop profile.
+  The fcitx module: packages, the stowed input-method group file (keyboard,
+  pinyin, unikey — unikey defaults to Telex), the IM environment via
+  ~/.config/env/im.env, the autostart entry, and .xsessionrc so the env
+  reaches X sessions. The desktop profile carries it.

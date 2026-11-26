@@ -24,13 +24,19 @@ load_all_envs() {
 
 load_all_envs
 
-# Make-target completion wherever bash runs interactively, with or without
-# the bash-completion package (the completion itself stays quiet outside
-# the system repo). Sourced from here — not from .bashrc — because .bashrc
-# already chains through .profile, so login and non-login shells both get
-# it exactly once: Debian desktop, Termux phone, rootless pubnix alike.
-if [ -n "${BASH_VERSION:-}" ] && [ -f "$HOME/.local/share/bash-completion/completions/make" ]; then
-    . "$HOME/.local/share/bash-completion/completions/make"
+# Bash completions wherever bash runs interactively, with or without the
+# bash-completion package (>= 2.12 loads this same directory lazily on its
+# own): make's target completion (this module, quiet outside the system
+# repo) plus whatever the modules installed user-locally — rclone, restic,
+# git, written by the `completion` CLI (README, Daily operation). Sourced
+# from here — not from .bashrc — because .bashrc already chains through
+# .profile, so login and non-login shells get each file exactly once:
+# Debian desktop, Termux phone, rootless pubnix alike.
+if [ -n "${BASH_VERSION:-}" ] && [ -d "$HOME/.local/share/bash-completion/completions" ]; then
+    for _comp in "$HOME/.local/share/bash-completion/completions"/*; do
+        [ -f "$_comp" ] || continue
+        . "$_comp"
+    done
 fi
 
 _HOSTNAME=$(hostname 2>/dev/null || uname -n)
@@ -57,4 +63,4 @@ if [ "$_HOSTNAME" = "bsd.tilde.team" ]; then
     done
 fi
 
-unset _HOSTNAME _py_path _env_dir _f
+unset _HOSTNAME _py_path _env_dir _f _comp

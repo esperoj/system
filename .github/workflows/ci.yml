@@ -22,6 +22,21 @@ jobs:
           sudo install -m0755 /tmp/shfmt /usr/local/bin/shfmt
       - run: make lint
 
+  test:
+    name: Test (bats-core suite)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@main
+      - name: Install test dependencies
+        run: |
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq stow
+            curl -fsSLo /tmp/bats.tgz https://github.com/bats-core/bats-core/archive/refs/tags/v1.14.0.tar.gz
+            tar -xzf /tmp/bats.tgz -C /tmp
+            bash /tmp/bats-core-1.14.0/install.sh "$HOME/.local"
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: make test
+
   debian-image:
     name: Debian image (docker-base profile)
     runs-on: ubuntu-latest

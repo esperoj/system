@@ -1,0 +1,64 @@
+#!/bin/sh
+# dev - bats-core, the test runner behind `make test`, for nodes whose
+# distro does not package it. Debian's `bats` package wins when present
+# (the PATH rule install-tool and this script both honour); Termux and
+# most rootless hosts have none. Installed like stow: pinned source
+# tarball, upstream install.sh into ~/.local, URL recorded so --update
+# compares offline.
+#
+# shfmt and shellcheck, the other two of the dev toolchain, are single
+# static binaries: the install-tool lines in dev.mk fetch them with the
+# same PATH skip, and dev/uninstall drops them via uninstall-tool.
+#
+# usage: modules/dev/install [--update]
+#   (no flag)   install if missing; skip loudly when the host provides bats
+#   --update    rebuild a user-local copy when the pinned BATS_VER differs
+#               from the recorded build (the pinned URL is the identity)
+set -eu
+
+UPDATE=0
+if [ "${1:-}" = "--update" ]; then
+	UPDATE=1
+	shift
+fi
+
+BATS_VER="1.14.0"
+BATS_URL="https://github.com/bats-core/bats-core/archive/refs/tags/v${BATS_VER}.tar.gz"
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/system/tools/bats"
+
+# Same skip contract as stow: a copy outside ~/.local/bin belongs to the
+# host, not to us: report it and leave.
+if command -v bats >/dev/null 2>&1; then
+	where=$(command -v bats)
+	if [ "$UPDATE" -eq 0 ] || [ "$where" != "$HOME/.local/bin/bats" ]; then
+		echo "✓ bats is already installed."
+		[ "$UPDATE" -eq 0 ] || echo "bats: host-provided ($where); update it with the system package manager"
+		exit 0
+	fi
+	recorded=""
+	if [ -f "$STATE/url" ]; then recorded=$(cat "$STATE/url"); fi
+	if [ "$recorded" = "$BATS_URL" ]; then
+		echo "✓ bats already latest (pinned ${BATS_VER})"
+		exit 0
+	fi
+	echo ":: bats: ${recorded##*/} -> v${BATS_VER}.tar.gz"
+fi
+
+echo ":: Installing bats-core ${BATS_VER} into $HOME/.local..."
+
+if ! command -v bash >/dev/null 2>&1; then
+	echo "Error: bash is required by bats-core." >&2
+	exit 1
+fi
+
+TMP_DIR=$(mktemp -d -t bats-install-XXXXXX)
+trap 'rm -rf "${TMP_DIR}"' EXIT
+
+curl -fsSL "$BATS_URL" | tar -xz -C "$TMP_DIR"
+
+bash "$TMP_DIR/bats-core-${BATS_VER}/install.sh" "$HOME/.local"
+
+mkdir -p "$STATE"
+printf '%s\n' "$BATS_URL" >"$STATE/url"
+
+echo "✓ bats-core ${BATS_VER} installed to $HOME/.local/bin/bats"
