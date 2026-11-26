@@ -1,0 +1,54 @@
+name: Runner Benchmark (yabs)
+
+on:
+  workflow_dispatch:   # manual "Run workflow" button; or run `act`-style triggers
+  # schedule:
+  #   - cron: "0 4 * * 1"   # optional: re-benchmark weekly (GitHub-hosted runners vary over time)
+
+concurrency:
+  group: benchmark-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    name: yabs (${{ matrix.runon }})
+    runs-on: ${{ matrix.runon }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false   # one slow/failed runner must not cancel the other
+      matrix:
+        runon:
+          - bp-ubuntu-latest-x64-2x
+          - bp-ubuntu-latest-arm64-2x
+
+    steps:
+      - name: Check arch + topology
+        run: |
+          uname -a
+          lscpu | awk -F: '/Model name|^CPU\(s\)|^Thread|Socket/ {print $1": "$2}'
+          df -h /
+
+      - name: Run yabs
+        run: |
+          set -uo pipefail
+          mkdir -p report
+
+          # Run the "basic" test group (CPU, memory, syscall, disk, web tests)
+          bash <(curl -fsSL https://raw.githubusercontent.com/heyzo/yabs/master/yabs) basic \
+            > "report/yabs-${RUNNER_ARCH}-$(date +%Y%m%d-%H%M%S).txt" 2>&1
+          status=$?
+          cat "report/yabs-${RUNNER_ARCH}-"*.txt
+
+          if [ "$status" -ne 0 ]; then
+            echo "::error::yabs exited with $status"
+            exit "$status"
+          fi
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yabs-${{ matrix.runon }}
+          path: report/
+          if-no-files-found: warn
+          retention-days: 90
