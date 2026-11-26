@@ -34,12 +34,13 @@ fetch_download "$URL" "${TMP_DIR}/download"
 
 # Name the archive. The requested basename wins when it already looks like
 # a file; a generic one ("latest" from dl.filippo.io) hides the real asset
-# name behind a redirect, so probe it with HEAD once.
+# name behind a redirect, so probe once and follow the whole chain — a
+# single hop is not enough on multi-hop CDNs (matching install-tool).
 FILE_NAME=$(basename "${URL%%\?*}")
 case "$FILE_NAME" in
 *.tar.gz | *.tgz | *.tar.xz | *.tar.zst | *.tar.bz2 | *.zip | *.bz2 | *.gz) ;;
 *)
-	_redirect=$(curl -fsSI -o /dev/null -w '%{redirect_url}' "$URL" 2>/dev/null || true)
+	_redirect=$(curl -fsSIL -o /dev/null -w '%{url_effective}' "$URL" 2>/dev/null || true)
 	_candidate=$(basename "${_redirect%%\?*}")
 	case "$_candidate" in
 	*.tar.gz | *.tgz | *.tar.xz | *.tar.zst | *.tar.bz2 | *.zip | *.bz2 | *.gz)
@@ -98,8 +99,16 @@ if [ -z "$FOUND_BIN" ]; then
 	fi
 fi
 
-# Install to destination
-mkdir -p "$(dirname "$DEST_PATH")"
+# Install to destination. An explicit [dest-path] may name the file
+# itself, so only its parent is created; the default names the
+# user's bin directory and is created as such, so a fresh HOME
+# never gets a regular file called "bin" where the directory
+# should be.
+if [ -n "${4:-}" ]; then
+	mkdir -p "$(dirname "$4")"
+else
+	mkdir -p "$DEST_PATH"
+fi
 
 if [ -d "$DEST_PATH" ]; then
 	TARGET="${DEST_PATH%/}/${BIN_NAME}"

@@ -43,6 +43,31 @@ beta" ]
 	[ "$(cat "$TGT/.config/a.conf")" = "managed" ]
 }
 
+@test "dot apply backs up a blocking host directory beside itself" {
+	mkmod alpha a.conf
+	mkdir -p "$TGT/.config/a.conf"
+	printf 'host\n' >"$TGT/.config/a.conf/inner"
+	run env MODULES_DIR="$MODS/alpha" TARGET="$TGT" dot apply dotfiles
+	[ "$status" -eq 0 ]
+	[ -L "$TGT/.config/a.conf" ]
+	[ "$(cat "$TGT/.config/.a.conf.bak/inner")" = "host" ]
+}
+
+@test "dot apply replaces a stale directory backup instead of failing" {
+	# An old non-empty .dir.bak is exactly the case mv -f cannot
+	# handle; apply must still carry the host dir into the fresh bak.
+	mkmod alpha a.conf
+	mkdir -p "$TGT/.config/a.conf"
+	printf 'host\n' >"$TGT/.config/a.conf/inner"
+	mkdir -p "$TGT/.config/.a.conf.bak/old"
+	printf 'stale\n' >"$TGT/.config/.a.conf.bak/old/deep"
+	run env MODULES_DIR="$MODS/alpha" TARGET="$TGT" dot apply dotfiles
+	[ "$status" -eq 0 ]
+	[ -L "$TGT/.config/a.conf" ]
+	[ "$(cat "$TGT/.config/.a.conf.bak/inner")" = "host" ]
+	[ ! -e "$TGT/.config/.a.conf.bak/old" ]
+}
+
 @test "dot apply is idempotent: a second run neither relinks nor backs up" {
 	mkmod alpha a.conf
 	env MODULES_DIR="$MODS/alpha" TARGET="$TGT" dot apply dotfiles

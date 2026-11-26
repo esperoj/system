@@ -100,7 +100,7 @@ base: sys-pkgs $(BASE_MODULES)
 
 #+begin_src makefile
 PHONE_MODULES := base restic            # everything else comes with base
-DESKTOP_MODULES := base restic dev anki keepassxc firefox emacs xclip wireproxy
+DESKTOP_MODULES := base restic dev anki keepassxc firefox emacs xclip wireproxy fcitx
 #+end_src
 
 Make expands prerequisites lazily, so ~$(BASE_MODULES)~ at rule time is exactly what was included. Nothing listed twice.

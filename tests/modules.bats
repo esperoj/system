@@ -57,6 +57,13 @@ mods_list() {
 	grep -q 'fcitx' "$REPO_ROOT/modules/desktop/desktop.mk"
 }
 
+@test "the README's DESKTOP_MODULES example tracks desktop.mk" {
+	mk_list=$(sed -n 's/^DESKTOP_MODULES := //p' "$REPO_ROOT/modules/desktop/desktop.mk")
+	readme_list=$(sed -n 's/^DESKTOP_MODULES := //p' "$REPO_ROOT/README.org")
+	[ -n "$mk_list" ]
+	[ "$mk_list" = "$readme_list" ]
+}
+
 @test "the dev module guarantees the test toolchain it declares" {
 	grep -q 'bats' "$REPO_ROOT/modules/dev/dev.mk"
 	grep -q 'shellcheck' "$REPO_ROOT/modules/dev/dev.mk"

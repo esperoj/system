@@ -45,20 +45,35 @@
   pinyin, unikey — unikey defaults to Telex), the IM environment via
   ~/.config/env/im.env, the autostart entry, and .xsessionrc so the env
   reaches X sessions. The desktop profile carries it.
-* TODO Harden =vault= permissions during clone and failed rebase syncs
-  Close the =0644= umask window during =vault init <url>= by creating =~/.vault=
-  with =mkdir -p -m 700= before =git clone= runs, and wrap =cmd_sync= with an
-  =EXIT= trap so =lock_perms= still clamps file permissions if =git pull --rebase=
-  aborts on a merge conflict.
-* TODO Fix directory backup collision in =dot=
-  In =dot='s =backup()= helper, remove any existing =.dir.bak= before =mv -f=
-  when stashing a directory blocking a symlink target; =mv -f= fails on
-  non-empty target directories and aborts =dot apply= under =set -e=.
-* TODO Follow multi-hop redirects in =fetch-bin=
-  Update the redirect probe in =fetch-bin= from =-fsSI= (=%=redirect_url=) to
-  =-fsSIL= (=%=url_effective=) so floating =latest= links resolve to the final
-  asset filename across multi-hop CDN redirects, matching =install-tool=.
-* TODO Sync =DESKTOP_MODULES= snippet in =README.org= with =desktop.mk=
-  Add =fcitx= to the =DESKTOP_MODULES= example list in =README.org= so the
-  documentation matches =modules/desktop/desktop.mk=.
+* DONE Harden =vault= permissions during clone and failed rebase syncs
+  =cmd_init= now pre-creates the root with =mkdir -p -m 700= before
+  =git clone= runs, so the vault fills inside a closed parent and the
+  umask never gets a window; =cmd_sync='s git work sits in a subshell
+  with an =EXIT= trap, so =lock_perms= still clamps whatever a conflicted
+  =git pull --rebase= checked out before the failure surfaces. Tests: a
+  failing clone still leaves the root exactly 700, and a conflicted sync
+  clamps the tree while exiting nonzero.
+* DONE Fix directory backup collision in =dot=
+  =backup()= drops a stale =.bak= with =rm -rf= before =mv -f= — mv
+  cannot replace a non-empty directory, so an existing =.dir.bak= used
+  to abort =dot apply= under =set -e=. Latest-wins stands, the host data
+  rides in the fresh =.bak=; a test replays the collision beside the
+  plain directory backup.
+* DONE Follow multi-hop redirects in =fetch-bin=
+  The archive-naming probe is now =curl -fsSIL= + =%{url_effective}= —
+  the same move install-tool's =release_id= makes — so floating
+  =latest= links resolve to the final asset filename across multi-hop
+  CDN redirects. A mocked-curl test answers only a following probe, so
+  the single-hop form can never pass again.
+* DONE Sync =DESKTOP_MODULES= snippet in =README.org= with =desktop.mk=
+  =fcitx= joined the README example, matching
+  =modules/desktop/desktop.mk=; a modules test now diffs the two lists,
+  so the snippet cannot drift from the makefile again.
+* DONE Make fetch-bin's default destination the directory it names
+  Proofread find: on a HOME with no ~/.local/bin yet, the default
+  DEST_PATH fell into the explicit-file branch and =cp= planted a
+  regular file called "bin" in ~/.local, blocking the directory for
+  good. The default is now =mkdir -p= as the directory it names; an
+  explicit [dest-path] keeps the file-or-directory contract. The
+  multi-hop fetch-bin test installs into a fresh HOME, pinning it.
 

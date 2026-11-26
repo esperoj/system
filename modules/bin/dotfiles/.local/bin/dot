@@ -60,9 +60,12 @@ referent() {
 	printf '%s%s\n' "${ref%/}" "$tail"
 }
 
-# Keep the host file next to itself: dir/a -> dir/.a.bak (latest wins).
+# Keep the host path next to itself: dir/a -> dir/.a.bak (latest wins).
+# The stale bak goes first: mv -f cannot replace a non-empty
+# directory and would abort dot apply under set -e.
 backup() {
 	bak=${1%/*}/.${1##*/}.bak
+	rm -rf "$bak"
 	mv -f "$1" "$bak"
 	printf 'dot: backed up %s -> %s\n' "$1" "$bak"
 }

@@ -19,6 +19,12 @@ lock_perms() {
 }
 
 cmd_init() {
+	# The root is 700 before git ever runs: clone and init then only
+	# create inside a closed parent, so no umask window can leave the
+	# vault world-readable while it fills. -m reaches the root alone:
+	# any parents it must make are the user's HOME, not vault content.
+	# shellcheck disable=SC2174
+	mkdir -p -m 700 "$VAULT_ROOT"
 	if [ -d "$VAULT_ROOT/.git" ]; then
 		[ $# -ge 1 ] && (git -C "$VAULT_ROOT" remote set-url origin "$1" 2>/dev/null || git -C "$VAULT_ROOT" remote add origin "$1")
 	elif [ -n "$(ls -A "$VAULT_ROOT" 2>/dev/null || true)" ]; then
@@ -28,7 +34,6 @@ cmd_init() {
 	elif [ $# -ge 1 ]; then
 		git clone "$1" "$VAULT_ROOT"
 	else
-		mkdir -p "$VAULT_ROOT"
 		git -C "$VAULT_ROOT" init -b main
 	fi
 	lock_perms
@@ -38,6 +43,9 @@ cmd_init() {
 cmd_sync() {
 	require_vault
 	(
+		# A rebase can check files out with the umask and then fail on
+		# a conflict; the trap clamps them on the way out either way.
+		trap 'lock_perms' EXIT
 		cd "$VAULT_ROOT"
 		git add -A
 		if ! git diff --cached --quiet; then

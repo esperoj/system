@@ -147,3 +147,46 @@ load 'test_helper'
 	*) return 1 ;;
 	esac
 }
+
+@test "fetch-bin: names the archive after a multi-hop redirect before installing" {
+	sandbox
+	mocks
+	# A real tarball with one executable, served by the curl mock; the
+	# mock answers the archive-naming probe only when it follows the
+	# whole chain (-fsSIL), never for a single-hop HEAD.
+	mkdir -p "$HOME/src/mytool"
+	printf '#!/bin/sh\necho mytool\n' >"$HOME/src/mytool/mytool"
+	chmod 755 "$HOME/src/mytool/mytool"
+	tar -czf "$HOME/src/mytool.tar.gz" -C "$HOME/src" mytool
+	export TARBALL="$HOME/src/mytool.tar.gz"
+	cat >"$MOCKS/curl" <<'EOF'
+#!/bin/sh
+# test mock: downloads copy the fixed tarball; the redirect probe is
+# answered with the final URL only when curl follows the whole chain.
+followed=0 out= fmt=
+while [ $# -gt 0 ]; do
+	case "$1" in
+	-fsSIL) followed=1 ;;
+	-w) fmt=$2; shift ;;
+	-o) out=$2; shift ;;
+	esac
+	shift
+done
+if [ -n "$fmt" ]; then
+	if [ "$followed" -eq 1 ]; then
+		printf 'https://cdn.example.com/mytool-v2.0.0.tar.gz\n'
+	fi
+	exit 0
+fi
+if [ -n "$out" ] && [ "$out" != /dev/null ]; then
+	cp "$TARBALL" "$out"
+fi
+exit 0
+EOF
+	chmod +x "$MOCKS/curl"
+	run env LIB_DIR="$LIB_DIR" fetch-bin "https://example.com/latest" "" mytool
+	[ "$status" -eq 0 ]
+	[ "$(cat "$HOME/.local/bin/mytool")" = '#!/bin/sh
+echo mytool' ]
+	[ -x "$HOME/.local/bin/mytool" ]
+}
