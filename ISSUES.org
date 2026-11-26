@@ -76,4 +76,5 @@
   good. The default is now =mkdir -p= as the directory it names; an
   explicit [dest-path] keeps the file-or-directory contract. The
   multi-hop fetch-bin test installs into a fresh HOME, pinning it.
+* TODO use ~/.local/share/bash-completion/completions for completions if install not using system package rather than left to host. Check if i need to source it on launch or not etc. the idea to make sure to have completions install without root.
 
