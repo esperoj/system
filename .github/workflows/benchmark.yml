@@ -1,54 +1,84 @@
-name: Runner Benchmark (yabs)
+name: Runner Benchmark (YABS)
 
 on:
-  workflow_dispatch:   # manual "Run workflow" button; or run `act`-style triggers
-  # schedule:
-  #   - cron: "0 4 * * 1"   # optional: re-benchmark weekly (GitHub-hosted runners vary over time)
+  workflow_dispatch:
+    inputs:
+      yabs_flags:
+        description: "Extra yabs.sh flags"
+        required: false
+        default: "-b -i"   # -b: pre-compiled binaries, -i: skip iperf3 (noisy/blocked from runners)
 
 concurrency:
-  group: benchmark-${{ github.workflow }}-${{ github.ref }}
+  group: yabs-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  # Pin the script so x64/arm64 runs and future runs stay comparable.
+  # Grab the current commit SHA from https://github.com/masonr/yet-another-bench-script/commits/master
+  YABS_REF: master
+  YABS_SHA256: ""          # optional: paste sha256 of the pinned script to fail on change
+
 jobs:
-  benchmark:
-    name: yabs (${{ matrix.runon }})
+  bench:
+    name: yabs (${{ matrix.runon }} / ${{ matrix.arch }})
     runs-on: ${{ matrix.runon }}
-    timeout-minutes: 30
+    timeout-minutes: 40
     strategy:
-      fail-fast: false   # one slow/failed runner must not cancel the other
+      fail-fast: false
       matrix:
-        runon:
-          - bp-ubuntu-latest-x64-2x
-          - bp-ubuntu-latest-arm64-2x
+        include:
+          - runon: bp-ubuntu-latest-x64-2x
+            arch: x64
+          - runon: bp-ubuntu-latest-arm64-2x
+            arch: arm64
 
     steps:
-      - name: Check arch + topology
+      - name: Inspect machine
         run: |
           uname -a
-          lscpu | awk -F: '/Model name|^CPU\(s\)|^Thread|Socket/ {print $1": "$2}'
-          df -h /
+          lscpu | grep -E 'Model name|^CPU\(s\)|Thread|Socket|Architecture'
+          free -h; df -h /
 
-      - name: Run yabs
+      - name: Fetch yabs.sh
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          curl -fsSL "https://raw.githubusercontent.com/masonr/yet-another-bench-script/${YABS_REF}/yabs.sh" -o yabs.sh
+          echo "fetched yabs.sh ($(wc -l < yabs.sh) lines, sha256 $(sha256sum yabs.sh | cut -d' ' -f1))"
+          if [ -n "$YABS_SHA256" ]; then
+            echo "$YABS_SHA256  yabs.sh" | sha256sum -c -
+          fi
+          chmod +x yabs.sh
+          ./yabs.sh -h || true
+
+      - name: Run benchmark
+        id: run
         run: |
           set -uo pipefail
-          mkdir -p report
+          STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+          LOG="out/yabs-${STAMP}.txt"
 
-          # Run the "basic" test group (CPU, memory, syscall, disk, web tests)
-          bash <(curl -fsSL https://raw.githubusercontent.com/heyzo/yabs/master/yabs) basic \
-            > "report/yabs-${RUNNER_ARCH}-$(date +%Y%m%d-%H%M%S).txt" 2>&1
-          status=$?
-          cat "report/yabs-${RUNNER_ARCH}-"*.txt
+          # tee so the log survives even on failure; capture exit code separately
+          ./yabs.sh ${{ inputs.yabs_flags }} 2>&1 | tee "$LOG"
+          rc=${PIPESTATUS[0]}
 
-          if [ "$status" -ne 0 ]; then
-            echo "::error::yabs exited with $status"
-            exit "$status"
-          fi
+          # Also emit machine-readable JSON (-j prints JSON to stdout) for arch diffing
+          ./yabs.sh ${{ inputs.yabs_flags }} -j -g -f 2>&1 | tee "out/yabs-${STAMP}.json.txt" >/dev/null || true
 
-      - name: Upload report
+          {
+            echo "### YABS — ${{ matrix.runon }} (${{ matrix.arch }})"
+            echo '```'
+            tail -n 120 "\$LOG"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          exit "$rc"
+
+      - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: yabs-${{ matrix.runon }}
-          path: report/
+          name: yabs-${{ matrix.arch }}
+          path: out/
           if-no-files-found: warn
           retention-days: 90
