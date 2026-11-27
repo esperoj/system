@@ -1,0 +1,268 @@
+#!/bin/sh
+# sync - the daily repo check across HOME: auto-commit the safe set,
+# review the rest.
+#
+# Two groups, stated once:
+#   auto  — data-like repos, safe to commit, rebase and push without
+#           asking: the vault (through `vault sync`, so its permission
+#           clamping happens on the way), ~/projects/notes and the pkit
+#           data repos ~/.local/share/pkit/{archive,records}. Override
+#           with SYNC_AUTO_REPOS (HOME-relative, space-separated).
+#   watch — every other git repo directly under ~/projects/ (pkit,
+#           system, ...): code, never auto-committed. From a terminal,
+#           sync shows each repo's status and asks what to do; from cron
+#           it only reports, plus one ntfy summary through `notify` when
+#           NTFY_URL is set. Override with SYNC_WATCH_REPOS (same shape).
+#
+# Exit code: 0 when everything is synced or reported; 1 when an auto
+# repo or the vault failed to sync (loudly, git's own error visible).
+# Watch repos that only need attention are a report, not a failure.
+#
+# usage: sync
+set -eu
+
+SYNC_AUTO_REPOS="${SYNC_AUTO_REPOS:-.local/share/pkit/archive .local/share/pkit/records projects/notes}"
+PROJECTS_DIR="${SYNC_PROJECTS_DIR:-$HOME/projects}"
+
+FAILED=0
+ATTN=0
+ATTN_NAMES=""
+QUIT=0
+
+# Interactive when a terminal is attached; SYNC_INTERACTIVE=1 forces it
+# (piped answers, tests); anything else with no terminal takes the cron
+# behaviour — report, never ask.
+if [ "${SYNC_INTERACTIVE:-0}" = 1 ] || [ -t 0 ]; then
+	INTERACTIVE=1
+else
+	INTERACTIVE=0
+fi
+
+is_git_repo() { git -C "$1" rev-parse --git-dir >/dev/null 2>&1; }
+
+# Repo state, for the report and the prompt. Sets STATE ("3 changes
+# (2 tracked, 1 untracked), ahead 2 [main]") and NEEDS_ATTENTION (any
+# local changes, or commits unpushed/unpulled; clean repos with no
+# upstream stay informational).
+repo_state() {
+	_rs_dir=$1
+	NEEDS_ATTENTION=0
+	STATE=""
+
+	_rs_por=$(git -C "$_rs_dir" status --porcelain 2>/dev/null || true)
+	if [ -n "$_rs_por" ]; then
+		_rs_tracked=$(printf '%s\n' "$_rs_por" | grep -c '^[^?]' || true)
+		_rs_untracked=$(printf '%s\n' "$_rs_por" | grep -c '^??' || true)
+		_rs_n=$((_rs_tracked + _rs_untracked))
+		if [ "$_rs_tracked" -gt 0 ] && [ "$_rs_untracked" -gt 0 ]; then
+			STATE="$_rs_n changes ($_rs_tracked tracked, $_rs_untracked untracked)"
+		elif [ "$_rs_untracked" -gt 0 ]; then
+			STATE="$_rs_untracked untracked"
+		else
+			STATE="$_rs_tracked changes"
+		fi
+		NEEDS_ATTENTION=1
+	else
+		STATE="clean"
+	fi
+
+	_rs_branch=$(git -C "$_rs_dir" branch --show-current 2>/dev/null || true)
+	if [ -n "$_rs_branch" ]; then
+		STATE="$STATE [$_rs_branch]"
+	else
+		STATE="$STATE [detached]"
+	fi
+
+	_rs_remote=$(git -C "$_rs_dir" remote 2>/dev/null || true)
+	_rs_up=""
+	if [ -n "$_rs_remote" ]; then
+		_rs_up=$(git -C "$_rs_dir" rev-parse --abbrev-ref '@{upstream}' 2>/dev/null || true)
+	fi
+	if [ -n "$_rs_up" ]; then
+		_rs_cnts=$(git -C "$_rs_dir" rev-list --left-right --count "$_rs_up...HEAD" 2>/dev/null || true)
+		_rs_behind=$(printf '%s' "$_rs_cnts" | awk '{print $1}')
+		_rs_ahead=$(printf '%s' "$_rs_cnts" | awk '{print $2}')
+		_rs_behind=${_rs_behind:-0}
+		_rs_ahead=${_rs_ahead:-0}
+		if [ "$_rs_behind" -gt 0 ]; then
+			STATE="$STATE, behind $_rs_behind"
+			NEEDS_ATTENTION=1
+		fi
+		if [ "$_rs_ahead" -gt 0 ]; then
+			STATE="$STATE, ahead $_rs_ahead"
+			NEEDS_ATTENTION=1
+		fi
+	elif [ -n "$_rs_remote" ]; then
+		STATE="$STATE, no upstream"
+	else
+		STATE="$STATE, no remote"
+	fi
+	unset _rs_dir _rs_por _rs_tracked _rs_untracked _rs_n _rs_branch _rs_remote _rs_up _rs_cnts _rs_behind _rs_ahead
+}
+
+# Commit, rebase and push one repo (the vault's sync semantics); unborn
+# and detached states are reported honestly instead of acted on. Runs
+# in a subshell so one repo's failure is loud but costs only itself.
+# Every git step carries an explicit || exit 1: callers run this under
+# `if !`, and set -e is suspended inside a tested command (POSIX) —
+# both bash and dash keep it suspended even after an inner `set -e` —
+# so only explicit exits make a failed pull or push surface as failure.
+auto_repo() {
+	(
+		cd "$1" || exit 1
+		_branch=$(git branch --show-current 2>/dev/null || true)
+		if git rev-parse -q --verify HEAD >/dev/null 2>&1 && [ -z "$_branch" ]; then
+			echo "sync: $2: detached HEAD; left alone"
+			exit 0
+		fi
+		git add -A || exit 1
+		if [ -n "$(git status --porcelain)" ]; then
+			git commit -m "sync: $(uname -n) $(date '+%F %T')" || exit 1
+			echo "sync: $2: committed"
+		fi
+		if ! git rev-parse -q --verify HEAD >/dev/null 2>&1; then
+			echo "sync: $2: no commits yet; nothing to pull or push"
+			exit 0
+		fi
+		if _up=$(git rev-parse --abbrev-ref '@{upstream}' 2>/dev/null) && [ -n "$_up" ]; then
+			git pull --rebase --autostash || exit 1
+		fi
+		_remote=$(git remote | head -n 1 || true)
+		if [ -n "$_remote" ]; then
+			git push -u "$_remote" HEAD || exit 1
+			echo "sync: $2: pushed"
+		else
+			echo "sync: $2: no remote; changes kept local"
+		fi
+	)
+}
+
+# Ask about one watch repo; EOF on stdin counts as skip, so a drained
+# pipe can never spin the prompt.
+ask_repo() {
+	_a_dir=$1
+	_a_name=$2
+	while :; do
+		repo_state "$_a_dir"
+		echo "$_a_name: $STATE"
+		git -C "$_a_dir" status --short
+		printf '[c]ommit & push  [p]ull  [d]iff  [s]kip  [q]uit > '
+		if ! IFS= read -r ans; then
+			ans=s
+		fi
+		case "$ans" in
+		c | C)
+			if ! auto_repo "$_a_dir" "$_a_name"; then
+				echo "sync: $_a_name: failed to sync" >&2
+				FAILED=$((FAILED + 1))
+			fi
+			return
+			;;
+		p | P)
+			if (git -C "$_a_dir" pull --rebase --autostash); then
+				echo "sync: $_a_name: pulled"
+			else
+				echo "sync: $_a_name: pull failed" >&2
+				FAILED=$((FAILED + 1))
+			fi
+			return
+			;;
+		d | D)
+			git -C "$_a_dir" diff HEAD || echo "sync: no committed state to diff against"
+			;;
+		s | S) return ;;
+		q | Q)
+			QUIT=1
+			return
+			;;
+		*) echo "sync: unknown answer '$ans'" ;;
+		esac
+	done
+}
+
+# Report or ask about one watch repo.
+watch_repo() {
+	_w_dir=$1
+	_w_name=$2
+	repo_state "$_w_dir"
+	if [ "$INTERACTIVE" = 1 ] && [ "$NEEDS_ATTENTION" = 1 ] && [ "$QUIT" = 0 ]; then
+		ask_repo "$_w_dir" "$_w_name"
+	elif [ "$NEEDS_ATTENTION" = 1 ]; then
+		echo "sync: $_w_name: $STATE — needs attention"
+		ATTN=$((ATTN + 1))
+		ATTN_NAMES="$ATTN_NAMES $_w_name"
+	else
+		echo "✓ $_w_name: $STATE"
+	fi
+}
+
+# --- vault (its own sync: permissions stay clamped) ----------------------
+_vault="${VAULT_ROOT:-$HOME/.vault}"
+if is_git_repo "$_vault"; then
+	if command -v vault >/dev/null 2>&1; then
+		if ! vault sync; then
+			echo "sync: vault failed to sync" >&2
+			FAILED=$((FAILED + 1))
+		fi
+	else
+		echo "sync: vault present but the vault CLI is not on PATH" >&2
+		FAILED=$((FAILED + 1))
+	fi
+else
+	echo "✓ vault: not present; skipped"
+fi
+
+# --- auto repos ----------------------------------------------------------
+# Deliberate word splitting: the list is space-separated HOME-relative
+# paths, one word per repo (the install-sys-pkg precedent).
+# shellcheck disable=SC2086
+for _rel in $SYNC_AUTO_REPOS; do
+	_dir="$HOME/$_rel"
+	if is_git_repo "$_dir"; then
+		if ! auto_repo "$_dir" "$_rel"; then
+			echo "sync: $_rel failed to sync" >&2
+			FAILED=$((FAILED + 1))
+		fi
+	else
+		echo "✓ $_rel: not present; skipped"
+	fi
+done
+
+# --- watch repos: ~/projects/* minus the auto set -------------------------
+if [ -n "${SYNC_WATCH_REPOS:-}" ]; then
+	# shellcheck disable=SC2086
+	for _rel in $SYNC_WATCH_REPOS; do
+		watch_repo "$HOME/$_rel" "$_rel"
+	done
+else
+	for _dir in "$PROJECTS_DIR"/*/; do
+		_dir=${_dir%/}
+		[ -d "$_dir" ] || continue
+		is_git_repo "$_dir" || continue
+		_rel=${_dir#"$HOME"/}
+		case " $SYNC_AUTO_REPOS " in
+		*" $_rel "*) continue ;;
+		esac
+		watch_repo "$_dir" "$_rel"
+		if [ "$QUIT" = 1 ]; then
+			break
+		fi
+	done
+fi
+
+# --- summary -------------------------------------------------------------
+if [ "$FAILED" -gt 0 ]; then
+	echo "sync: done; $FAILED repo(s) failed" >&2
+	exit 1
+fi
+if [ "$ATTN" -gt 0 ]; then
+	echo "sync: $ATTN repo(s) need attention:$ATTN_NAMES"
+	if [ "$INTERACTIVE" != 1 ] && [ -n "${NTFY_URL:-}" ] && command -v notify >/dev/null 2>&1; then
+		if ! notify "sync on $(uname -n): $ATTN repo(s) need attention:$ATTN_NAMES" "Title: sync"; then
+			echo "sync: notify failed" >&2
+		fi
+	fi
+	exit 0
+fi
+echo "sync: every repo is synced or clean"
+exit 0

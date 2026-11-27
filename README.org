@@ -63,7 +63,7 @@ Avoided: configuration frameworks, dotfile DSLs, state daemons, formats needing 
 
 · Shell startup performs zero work: no compilation, no network, no linking.
 · An unchanged package set re-runs in milliseconds (~0.2s measured for a full ~make base~).
-· Core CLIs (~dot~, ~vault~, ~install-sys-pkg~, ~install-tool~, ~fetch-bin~) run standalone once ~make base~ installed them; Make is orchestration, not a runtime dependency.
+· Core CLIs (~dot~, ~vault~, ~sync~, ~install-sys-pkg~, ~install-tool~, ~fetch-bin~) run standalone once ~make base~ installed them; Make is orchestration, not a runtime dependency.
 
 · Architecture
 
@@ -193,7 +193,7 @@ So the same one-line rule covers every node type: Debian installs ~jq~ through a
 #+begin_src makefile
 .PHONY: jq
 jq: sys-pkgs
-	@install-tool jq gh:jqlang/jq 'jq-{OS}-{ARCH}$$'
+        @install-tool jq gh:jqlang/jq 'jq-{OS}-{ARCH}$$'
 #+end_src
 
 Tools that need more than a fetch keep a real ~install~ script (~anki~, ~chdman~, ~stow~ — source build on rootless hosts).
@@ -290,7 +290,7 @@ make vault                   SECRETS — links ssh/git/rclone/... from ~/.vault
 secret-dependent modules     pkit-meta, pkit-archive (clone private repos
       │                      over SSH using the vault's keys)
       ▼
-daily operation    make <profile> · dot prune · vault sync
+daily operation    make <profile> · dot prune · vault sync · sync
 #+end_example
 
 This is why ~docker-base~ (and any profile) is secret-optional: in a disposable container you often want exactly the tools and nothing else. Modules that require secrets (~pkit-meta~, ~pkit-archive~) declare ~vault~ as a make prerequisite, so the ordering is enforced by the DAG: on a node without a vault their ~git clone~ fails loudly — the honest signal that the secrets layer is missing, not a bug.
@@ -307,7 +307,7 @@ This is why ~docker-base~ (and any profile) is secret-optional: in a disposable 
 ├── .crow/publish.yaml         # codefloe image publish
 ├── modules/
 │   ├── base/                  # core profile: the tools layer
-│   ├── bin/                   # dot, vault, install-sys-pkg, install-tool, fetch-bin, completion, ...
+│   ├── bin/                   # dot, vault, sync, install-sys-pkg, install-tool, fetch-bin, completion, ...
 │   ├── lib/                   # lib.sh (single shared shell library)
 │   ├── vault/                 # secrets layer (VAULT_MODULES default lives here)
 │   ├── crontab/ desktop/ dev/ docker-base/ emacs/ env/ fcitx/
@@ -483,7 +483,10 @@ make update                     # refresh tools + re-apply, skips intact
 make test                      # the bats suite, after `make dev` once
 dot prune                       # after pulls that removed files
 vault sync                      # honest exit codes
+sync                            # repo check across HOME (the vault included)
 #+end_src
+
+~sync~ is the daily repo check across ~HOME~ — the workflow behind ~.local/bin/daily~, which runs it before the backup recipe so the log carries both and a failed sync never skips the backup. Two groups, stated once: the auto set — the vault (delegated to ~vault sync~, so permissions stay clamped), ~/projects/notes~ and the pkit data repos under ~~/.local/share/pkit~ — is committed, rebased and pushed without asking; every other git repo directly under ~/projects/~ (~pkit~, ~system~, ...) is watched and never auto-committed: a terminal run shows each one's status and asks — ~(c)ommit and push~, ~(p)ull~, ~(d)iff~, ~(s)kip~, ~(q)uit~ — while a non-interactive run (cron) only reports, plus one ntfy summary through ~notify~ when ~NTFY_URL~ is set. Exit code 0 when everything is synced or reported, 1 when an auto repo or the vault failed (loudly, git's own error visible); a repo that only needs attention is a report, not a failure. The lists are environment-overridable — ~SYNC_AUTO_REPOS~ and ~SYNC_WATCH_REPOS~ (HOME-relative, space-separated) — and ~SYNC_INTERACTIVE=1~ forces the prompts when input is piped.
 
 Tab completion follows the shell module everywhere, and .profile sources every file in the user completions directory (=${XDG_DATA_HOME:-~/.local/share}/bash-completion/completions=, the same XDG-aware path the ~completion~ CLI writes and ~<module>-uninstall~ drops) for interactive bash, with or without the bash-completion package (which at 2.12 or later loads the same directory lazily on its own): the make-target completion (and ~m~, the repo-aware wrapper in .bashrc — quiet in any other directory) plus the ones the modules install through ~completion~ — one small CLI whose generator is the freshly installed tool itself, so the file can never drift from the binary it completes: ~make rclone~ runs ~rclone completion bash~, ~make restic~ runs ~restic generate --bash-completion~, ~make git~ fetches the upstream tag matching the installed git. A failed generator warns and moves on — garnish, not the install. Bash only, deliberately.
 
@@ -514,7 +517,7 @@ A new warning is fixed, or it joins this list with a justification. Silence is n
 
 ** The test suite
 
-~make test~ runs bats over ~tests/~: the module contract (every module has its guarded makefile, and every goal plus both ~-update~ / ~-uninstall~ verbs parses through the goal-driven inclusion) and the behaviour of the CLIs — ~dot~ against a real stow in a sandbox HOME, ~vault~ against git, the privilege and PATH rules of the installers, lib.sh's engines behind a mocked ~uname~, the completion CLI behind mocked tools, the shell module's ~.profile~ sourcing every user completion into interactive bash. Every test is hermetic: a disposable HOME, PATH mocks, no network. The runner itself is the one tool ~make dev~ guarantees on every node the dev module runs on; CI pins bats-core 1.14.0 beside ~make lint~. The suite already paid for itself once: parsing every module goal at once exposed a double read of vault.mk — the include-once guard now lives inside ~include-module~.
+~make test~ runs bats over ~tests/~: the module contract (every module has its guarded makefile, and every goal plus both ~-update~ / ~-uninstall~ verbs parses through the goal-driven inclusion) and the behaviour of the CLIs — ~dot~ against a real stow in a sandbox HOME, ~vault~ against git, the privilege and PATH rules of the installers, lib.sh's engines behind a mocked ~uname~, the completion CLI behind mocked tools, the repo-sync CLI ~sync~ against sandbox git repos, the shell module's ~.profile~ sourcing every user completion into interactive bash. Every test is hermetic: a disposable HOME, PATH mocks, no network. The runner itself is the one tool ~make dev~ guarantees on every node the dev module runs on; CI pins bats-core 1.14.0 beside ~make lint~. The suite already paid for itself once: parsing every module goal at once exposed a double read of vault.mk — the include-once guard now lives inside ~include-module~.
 
 · Host support, honestly
 

@@ -94,5 +94,17 @@
   actually load); and a failed generator no longer claims the completion
   is "left to the host" — nothing user-local was ever the host's to
   provide — it says no completion written, and the next apply retries.
-* TODO I want to check diff in .local/share/pkit/{archive,records} and all in ~/projects/ and ~/.vault too. I want to do it daily. However, there are things i can auto commit like projects/notes and archive and records and vault. but project like pkit wont auto commit? i want a workflow to run daily rather than just backup that check status if changed then ask me what to do skip, or auto commit and pull and push, etc
+* DONE I want to check diff in .local/share/pkit/{archive,records} and all in ~/projects/ and ~/.vault too. I want to do it daily. However, there are things i can auto commit like projects/notes and archive and records and vault. but project like pkit wont auto commit? i want a workflow to run daily rather than just backup that check status if changed then ask me what to do skip, or auto commit and pull and push, etc
 design to reduce those daily friction of syncing and backup. i currently ran .local/bin/daily but that only backup
+  The `sync` CLI walks HOME's repos in two groups: the auto set — the
+  vault through `vault sync` (so permissions stay clamped), notes, and
+  the pkit archive/records data repos — is committed, rebased and pushed
+  without asking; every other repo under ~/projects (pkit, system) is
+  watched and never auto-committed — a terminal run shows each one's
+  status and asks commit / pull / diff / skip, while cron only reports,
+  plus one ntfy summary through `notify` when NTFY_URL is set.
+  `.local/bin/daily` now runs sync before the backup recipe, so the log
+  carries both and a failed sync never skips the backup. Sandbox-git
+  bats tests pin the auto push, the never-auto-commit watch group, the
+  vault delegation, and every interactive answer; `clone-dep` gained
+  its lost exec bit along the way.
