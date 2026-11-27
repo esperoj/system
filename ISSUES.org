@@ -94,4 +94,5 @@
   actually load); and a failed generator no longer claims the completion
   is "left to the host" — nothing user-local was ever the host's to
   provide — it says no completion written, and the next apply retries.
-
+* TODO I want to check diff in .local/share/pkit/{archive,records} and all in ~/projects/ and ~/.vault too. I want to do it daily. However, there are things i can auto commit like projects/notes and archive and records and vault. but project like pkit wont auto commit? i want a workflow to run daily rather than just backup that check status if changed then ask me what to do skip, or auto commit and pull and push, etc
+design to reduce those daily friction of syncing and backup. i currently ran .local/bin/daily but that only backup
