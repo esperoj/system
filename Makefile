@@ -70,7 +70,7 @@ $(STAMP):
 	install-sys-pkg
 	touch $@
 
-.PHONY: sys-pkgs clean-state help lint fmt review setup-remotes update uninstall test
+.PHONY: sys-pkgs clean-state help lint fmt review setup-remotes update uninstall test test-emacs
 
 sys-pkgs: $(STAMP)
 
@@ -137,6 +137,7 @@ help:
 	echo "Utility targets:"
 	echo "  help         Show this help"
 	echo "  test         Run the bats suite in tests/ (make dev installs bats)"
+	echo "  test-emacs   Run the Emacs ERT suite (needs emacs)"
 	echo "  lint         Run shellcheck and shfmt checks (read-only)"
 	echo "  fmt          Format shell scripts in-place using shfmt"
 	echo "  review       Run Aider review on the latest commit"
@@ -151,13 +152,29 @@ help:
 # --- Test Suite --------------------------------------------------------
 # bats over tests/: contract tests for the module layer and behaviour
 # tests for the CLIs, all hermetic (mocks, sandbox HOMEs, no network).
-# The runner is the one tool make dev guarantees everywhere.
+# The Emacs ERT suite runs beside it when emacs is present; a node
+# without emacs says so and still gets the bats result. The runner is
+# the one tool make dev guarantees everywhere.
 test:
 	@if command -v bats >/dev/null 2>&1; then
 	    echo ":: Running bats test suite..."
 	    bats tests
 	else
 	    echo "test: bats not found; run 'make dev' (or install bats-core) first" >&2
+	    exit 1
+	fi
+	@if command -v emacs >/dev/null 2>&1; then
+	    echo ":: Running Emacs ERT suite..."
+	    emacs -Q --batch -l tests/emacs/run-tests.el
+	else
+	    echo ":: emacs not found; skipping the Emacs ERT suite" >&2
+	fi
+
+test-emacs:
+	@if command -v emacs >/dev/null 2>&1; then
+	    emacs -Q --batch -l tests/emacs/run-tests.el
+	else
+	    echo "test-emacs: emacs not found; install emacs-nox or the phone profile first" >&2
 	    exit 1
 	fi
 

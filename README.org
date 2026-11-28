@@ -310,11 +310,13 @@ This is why ~docker-base~ (and any profile) is secret-optional: in a disposable 
 │   ├── bin/                   # dot, vault, sync, install-sys-pkg, install-tool, fetch-bin, completion, ...
 │   ├── lib/                   # lib.sh (single shared shell library)
 │   ├── vault/                 # secrets layer (VAULT_MODULES default lives here)
-│   ├── crontab/ desktop/ dev/ docker-base/ emacs/ env/ fcitx/
+│   ├── crontab/ desktop/ dev/ docker-base/ env/ fcitx/
+│   ├── emacs/                 # init.el thin loader + lisp/ feature modules
 │   ├── phone/ pubnix/ recipes/ shell/ ssh/ stow/ wireproxy/
 │   ├── pcsx2/ ppsspp/ azahar/ # on-demand emulators (not in any profile)
 ├── tests/                     # bats suite: make test (make dev installs the runner)
-└── .state/                    # ephemeral stamps (git-ignored, disposable)
+│   ├── emacs/                 # ERT suite: make test-emacs (emacs --batch)
+├── .state/                    # ephemeral stamps (git-ignored, disposable)
 #+end_example
 
 Each module: ~<name>.mk~ (rules, packages, verbs, include guard), ~dotfiles/~ (stowed files), optional ~install~ (only for tools needing more than a fetch), optional ~uninstall~ (the install's mirror). ~dev~ is the shape for a module that carries a toolchain: packages where the distro ships them, fetch fallbacks where it does not (bats-core like stow, shfmt and shellcheck as single binaries), both verbs explicit.
@@ -480,7 +482,7 @@ cd ~/projects/system
 git pull --rebase
 make desktop                    # or phone / pubnix / docker-base
 make update                     # refresh tools + re-apply, skips intact
-make test                      # the bats suite, after `make dev` once
+make test                      # bats + Emacs ERT, after `make dev` once
 dot prune                       # after pulls that removed files
 vault sync                      # honest exit codes
 sync                            # repo check across HOME (the vault included)
@@ -492,14 +494,47 @@ Tab completion follows the shell module everywhere, and .profile sources every f
 
 Isolated modules: ~make emacs~, ~make git~, ~make dev~. Refresh one module: ~make rclone-update~; refresh everything recorded applied: ~make update~ (fetched tools re-download only when upstream changed; everything else re-applies with skips). Remove one module: ~make restic-uninstall~. Ad-hoc packages: ~install-sys-pkg ripgrep~. Ad-hoc tools: ~install-tool fzf gh:junegunn/fzf 'fzf-{OS}-{ARCH}$$'~. Force full package re-evaluation: ~make clean-state && make <profile>~ (switching profiles does not need clean-state; it also forgets the applied set, which a profile run re-records). Inspect before running: ~make -n <goal>~.
 
+· The Emacs configuration
+
+~modules/emacs/dotfiles/.config/emacs/~ is deliberately boring: ~early-init.el~ makes the two decisions that must precede package.el (GC threshold, no package activation), ~init.el~ only adds ~lisp/~ to ~load-path~ and requires one feature per file, and each file owns one concern — ~init-core~ (paths, state, UI, built-in ergonomics), ~init-editing~, ~init-completion~, ~init-navigation~, ~init-folding~, ~init-ui~, ~init-git~, ~init-lang~, ~init-packages~, ~init-mobile~, ~init-keybindings~. Nothing in the loader calls ~package-install~, ~package-refresh-contents~, or ~load-theme~; an ERT test pins that.
+
+No network at startup. ~package-initialize~ only activates packages already on disk; the optional ELPA packages in ~my/packages~ (~magit~, ~markdown-mode~, ~yaml-mode~ — the ones this configuration already used) are installed by ~M-x my/ensure-packages~ or on first use through ~my/require-package~. A missing package therefore cannot break boot on Termux: ~my/magit-status~ asks before installing Magit, and the optional language modes are wired only when their autoloads exist. Termux additionally gets its shell, prefix PATH and ~termux-open-url~ from ~init-mobile~.
+
+The workflow is built-ins only:
+
+| Binding        | Command / meaning                                                     |
+|----------------+-----------------------------------------------------------------------|
+| ~M-.~ / ~M-,~  | xref find definition / go back (built-in)                             |
+| ~C-c t n/p~    | next / previous defun, tree-sitter first                              |
+| ~C-c t f/b~    | forward / backward sexp, tree-sitter first                            |
+| ~C-c t u/d~    | up / down a list (tree-sitter in Emacs 31, list commands otherwise)   |
+| ~C-c t a/e~    | beginning / end of defun                                              |
+| ~C-c t i/x~    | tree-sitter inspect / explore                                         |
+| ~C-c f f~      | toggle fold (hideshow, then outline)                                  |
+| ~C-c f h/s~    | hide / show all                                                       |
+| ~C-c f c~      | toggle comment fold                                                   |
+| ~C-c f t~      | fold to top level                                                     |
+| ~C-c f l~      | hide levels deeper than the prefix argument                           |
+| ~C-c f o~      | toggle outline heading                                                |
+| ~M-/~          | hippie-expand (completion), not comment-line                          |
+| ~C-;~          | comment-line; ~C-c C-;~ comment-or-uncomment-region                   |
+| ~C-c b~        | alternate buffer; ~C-c C-<left>/C-<right>~ winner undo/redo         |
+| ~C-c i~        | imenu                                                                 |
+| ~C-c C-=~      | format buffer through Eglot or ruff                                   |
+| C-c C-\        | indent the whole buffer                                               |
+
+The idle GC timer is gone: ~early-init.el~ sets 64MB for the init load and ~init-core.el~ drops to 32MB after startup, so the periodic five-second collection no longer causes lag. ~auto-revert-avoid-polling~, ~eglot-sync-connect nil~, and the disabled JSON-RPC event log keep the rest of the session quiet.
+
+~make test~ runs the ERT suite under ~tests/emacs/~ beside bats; ~make test-emacs~ runs it alone. The suite loads ~init.el~ in batch against a temporary ~user-emacs-directory~ and ~package-user-dir~, advises the two package network entry points to fail if called, and asserts the loader stays thin, the optional packages stay unloaded, the bindings exist, and the venv/fold commands behave.
+
 · Continuous integration
 
 GitHub Actions (~.github/workflows/ci.yml~) exercises the system on every push and pull request:
 
 | Job             | What it proves                                                      |
-|-----------------+---------------------------------------------------------------------|
-| ~lint~          | shellcheck + shfmt pass on every script                             |
-| ~test~          | the bats suite (pinned bats-core): module contracts and CLI behaviour, hermetic — sandbox HOMEs, mocked tools, zero network |
+|-----------------+--------------------------------------------------------------------------------------------------------|
+| ~lint~          | shellcheck + shfmt pass on every script                                                                 |
+| ~test~          | the bats suite (pinned bats-core): module contracts and CLI behaviour, hermetic — sandbox HOMEs, mocked tools, zero network; plus the Emacs ERT suite (batch, temporary ~user-emacs-directory~, no startup network) |
 | ~debian-image~  | ~docker build~ of the Dockerfile; CLIs and ~dot ls~ inside the image |
 | ~debian-rootless~ | a pubnix simulation: unprivileged user, ~sudo~ and ~cron~ present but never reached — ~MACHINE_TYPE=pubnix~ loud skip (goal export, then env file), user-local fetch fallbacks, standalone ~install-sys-pkg~ verified rootless, then ~make update~ proving the no-op path (records compared, nothing re-downloaded) |
 | ~termux~        | the full phone profile commissioned inside ~termux/termux-docker~ (with ~termux-exec~ preloaded, as on a device), then a no-op re-run and ~make update~ |
@@ -517,7 +552,7 @@ A new warning is fixed, or it joins this list with a justification. Silence is n
 
 ** The test suite
 
-~make test~ runs bats over ~tests/~: the module contract (every module has its guarded makefile, and every goal plus both ~-update~ / ~-uninstall~ verbs parses through the goal-driven inclusion) and the behaviour of the CLIs — ~dot~ against a real stow in a sandbox HOME, ~vault~ against git, the privilege and PATH rules of the installers, lib.sh's engines behind a mocked ~uname~, the completion CLI behind mocked tools, the repo-sync CLI ~sync~ against sandbox git repos, the shell module's ~.profile~ sourcing every user completion into interactive bash. Every test is hermetic: a disposable HOME, PATH mocks, no network. The runner itself is the one tool ~make dev~ guarantees on every node the dev module runs on; CI pins bats-core 1.14.0 beside ~make lint~. The suite already paid for itself once: parsing every module goal at once exposed a double read of vault.mk — the include-once guard now lives inside ~include-module~.
+~make test~ runs two suites over the repository. bats covers the module contract (every module has its guarded makefile, and every goal plus both ~-update~ / ~-uninstall~ verbs parses through the goal-driven inclusion) and the behaviour of the CLIs — ~dot~ against a real stow in a sandbox HOME, ~vault~ against git, the privilege and PATH rules of the installers, lib.sh's engines behind a mocked ~uname~, the completion CLI behind mocked tools, the repo-sync CLI ~sync~ against sandbox git repos, the shell module's ~.profile~ sourcing every user completion into interactive bash. ERT (~make test-emacs~) covers the Emacs configuration: the loader stays thin, the optional packages stay unloaded, the documented bindings exist, the package network entry points are never called during startup, and the venv/fold commands behave. Every test is hermetic: a disposable HOME, PATH mocks, no network. The runners are the tools ~make dev~ guarantees on every node the dev module runs on; CI pins bats-core 1.14.0 beside ~make lint~ and installs ~emacs-nox~ for the ERT suite. The suite already paid for itself once: parsing every module goal at once exposed a double read of vault.mk — the include-once guard now lives inside ~include-module~.
 
 · Host support, honestly
 
