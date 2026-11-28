@@ -134,11 +134,3 @@ design to reduce those daily friction of syncing and backup. i currently ran .lo
   init, 32MB after), which removes the periodic lag. =make test= now
   runs the ERT suite under =tests/emacs/= beside bats, and CI installs
   =emacs-nox=.
-* TODO fix make test
-not ok 60 sync: a home with no repos is a quiet success
-# (in test file tests/sync.bats, line 27)
-#   `[ "$status" -eq 0 ]' failed
-not ok 61 sync: auto repos commit and push without asking
-# (in test file tests/sync.bats, line 40)
-#   `[ "$status" -eq 0 ]' failed
-
