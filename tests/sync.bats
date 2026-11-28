@@ -8,6 +8,12 @@ setup() {
 	sandbox
 	git config --global user.email sync@test
 	git config --global user.name "sync test"
+	# The suite pins the cron behaviour: bats runs each test with
+	# the caller's stdin, so launched from a terminal sync's own
+	# `[ -t 0 ]` would otherwise reach the watch-repo prompt and
+	# `read` the user's terminal forever. The interactive tests
+	# override this per command (SYNC_INTERACTIVE=1, piped answer).
+	export SYNC_INTERACTIVE=0
 }
 
 # A local upstream whose checked-out branch accepts pushes
@@ -192,6 +198,10 @@ upstream() {
 	_old_home=$HOME
 	sandbox
 	rm -rf "$_old_home"
+	# the drop, pinned directly: the run below re-arms the
+	# suite default, which would otherwise mask it
+	[ -z "${SYNC_INTERACTIVE:-}" ]
+	export SYNC_INTERACTIVE=0
 	git config --global user.email sync@test
 	git config --global user.name "sync test"
 	[ "${GIT_CONFIG_GLOBAL:-}" = "$HOME/.gitconfig" ]

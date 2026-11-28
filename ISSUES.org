@@ -152,3 +152,24 @@ design to reduce those daily friction of syncing and backup. i currently ran .lo
   prune the daily pass never ran — it now says what `daily` does —
   and the README gained the manual benchmark workflow its layout
   tree was missing.
+
+* DONE The sync suite hung on a terminal
+  With the sandbox dropping the commissioned environment, `bats tests`
+  from a login shell now passed the sync tests it used to fail — and
+  then hung forever right after "ok 61 sync: auto repos commit and
+  push without asking". bats runs each test with the caller's stdin,
+  so from a terminal sync's own `[ -t 0 ]` chose the interactive path,
+  the next test's watch repo hit the [c]ommit prompt, and `read`
+  waited on the user's terminal — on CI or a piped shell the same
+  suite passed, which is why it never showed in a clean run.
+  SYNC_INTERACTIVE is now a two-sided switch: 1 still forces the
+  prompts for piped answers, 0 forces the cron behaviour, and the
+  sync suite pins 0 in its setup (vault.bats pins VAULT_ROOT the same
+  way; the interactive tests override it per command), so no terminal
+  on the caller can hang the prompt. The commissioned-shell regression
+  test pins the drop directly before re-arming the default, so a
+  sandbox that stopped dropping the override cannot hide behind the
+  pin. CI — the one environment a terminal is not — now runs the suite
+  a second time on a pty through `script` under a timeout, so the
+  class of regression that hangs a human's `make test` fails a red job
+  in minutes instead.

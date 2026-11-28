@@ -30,13 +30,15 @@ ATTN_NAMES=""
 QUIT=0
 
 # Interactive when a terminal is attached; SYNC_INTERACTIVE=1 forces it
-# (piped answers, tests); anything else with no terminal takes the cron
-# behaviour — report, never ask.
-if [ "${SYNC_INTERACTIVE:-0}" = 1 ] || [ -t 0 ]; then
-	INTERACTIVE=1
-else
-	INTERACTIVE=0
-fi
+# (piped answers), =0 forces the cron behaviour — report, never ask;
+# tests and automation pin =0 (bats runs each test with the caller's
+# stdin, so a terminal on the suite would otherwise hang the watch-repo
+# prompt); anything else with no terminal takes the cron behaviour.
+case "${SYNC_INTERACTIVE:-}" in
+1) INTERACTIVE=1 ;;
+0) INTERACTIVE=0 ;;
+*) if [ -t 0 ]; then INTERACTIVE=1; else INTERACTIVE=0; fi ;;
+esac
 
 is_git_repo() { git -C "$1" rev-parse --git-dir >/dev/null 2>&1; }
 

@@ -36,6 +36,15 @@ jobs:
             bash /tmp/bats-core-1.14.0/install.sh "$HOME/.local"
             echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: make test
+      # A terminal is the one environment CI never has: bats passes
+      # its own stdin through, so a CLI prompt that reads it would
+      # hang a human's `make test` forever while CI stayed green.
+      # Give the suite a pty (script) under a timeout: the sync
+      # suite pins SYNC_INTERACTIVE=0 and must stay immune — a
+      # regression prompts into the pty and the timeout fails the
+      # job instead of a user's terminal.
+      - name: The suite never waits on a terminal
+        run: timeout 600 script -qec "bats --formatter tap tests" /dev/null
 
   debian-image:
     name: Debian image (docker-base profile)
