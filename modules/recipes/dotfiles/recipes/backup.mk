@@ -36,10 +36,12 @@ export RESTIC_HOST := $(MACHINE_TYPE)
 all: daily
 
 # Daily routine:
-# 1. Snapshot existing backups before sync
-# 2. Sync workspace, backups, and machine-specific media
-# 3. Snapshot after sync
-# 4. Clean/prune
+# 1. Snapshot existing backups before the syncs (the state the next
+#    bisync pass starts from, restic-tagged `backups`)
+# 2. Sync workspace, backups, and machine-specific media, in order
+#    (.WAIT keeps the -j build sequential past the snapshot)
+# Pruning is `make clean`, a deliberate on-demand verb — never part
+# of the daily pass.
 daily: snap .WAIT sync-workspace sync-backups sync-media
 
 info:
@@ -100,7 +102,7 @@ resync: info
 
 snap: info
 	@mkdir -p $(BACKUP_DIR)
-	echo "--> Taking post-sync restic snapshot of BACKUPS folder..."
+	echo "--> Taking pre-sync restic snapshot of BACKUPS folder..."
 	restic backup $(BACKUP_DIR) --verbose --exclude-caches --tag backups
 
 clean: info

@@ -168,3 +168,43 @@ upstream() {
 	esac
 	rm -rf "$up"
 }
+
+@test "sync: a commissioned shell's environment never leaks in" {
+	# The real-world failure behind this fix: .profile exports
+	# VAULT_ROOT (base.env, set -a) on every node this system
+	# commissions, so `bats tests` from a login shell pointed
+	# sync at the real vault — its push failed and every sync
+	# test failed on `[ "$status" -eq 0 ]`. Rebuild that hostile
+	# environment, re-enter the sandbox, and pin that none of it
+	# reaches the run: not the vault, not the notify target, not
+	# the repo lists, not the projects dir, not interactivity.
+	_up=$(mktemp -d "${TMPDIR:-/tmp}/bats-leak-XXXXXX")
+	git init -q -b main "$_up"
+	printf 'v\n' >"$_up/file"
+	git -C "$_up" add file
+	git -C "$_up" commit -qm base
+	export VAULT_ROOT="$_up"
+	export NTFY_URL="https://ntfy.example/leaked"
+	export SYNC_AUTO_REPOS="leaked-auto"
+	export SYNC_WATCH_REPOS="leaked-watch"
+	export SYNC_PROJECTS_DIR="$_up"
+	export SYNC_INTERACTIVE=1
+	_old_home=$HOME
+	sandbox
+	rm -rf "$_old_home"
+	git config --global user.email sync@test
+	git config --global user.name "sync test"
+	[ "${GIT_CONFIG_GLOBAL:-}" = "$HOME/.gitconfig" ]
+	[ "${GIT_CONFIG_SYSTEM:-}" = "/dev/null" ]
+	[ -z "${XDG_CONFIG_HOME:-}" ]
+	run sync
+	[ "$status" -eq 0 ]
+	case "$output" in
+	*leak* | *ntfy.example* | *"$_up"*) return 1 ;;
+	esac
+	case "$output" in
+	*"vault: not present; skipped"*) ;;
+	*) return 1 ;;
+	esac
+	rm -rf "$_up"
+}

@@ -304,6 +304,7 @@ This is why ~docker-base~ (and any profile) is secret-optional: in a disposable 
 ├── Dockerfile                 # Debian 13-slim container image
 ├── README.org                 # this document
 ├── .github/workflows/ci.yml   # lint + test + debian image + rootless + termux
+├── .github/workflows/benchmark.yml # manual runner benchmark (YABS + NWS)
 ├── .crow/publish.yaml         # codefloe image publish
 ├── modules/
 │   ├── base/                  # core profile: the tools layer
@@ -529,7 +530,7 @@ The idle GC timer is gone: ~early-init.el~ sets 64MB for the init load and ~init
 
 · Continuous integration
 
-GitHub Actions (~.github/workflows/ci.yml~) exercises the system on every push and pull request:
+GitHub Actions (~.github/workflows/ci.yml~) exercises the system on every push to ~main~ and every pull request; the manual runner benchmark (YABS + NWS) lives beside it in ~.github/workflows/benchmark.yml~:
 
 | Job             | What it proves                                                      |
 |-----------------+--------------------------------------------------------------------------------------------------------|
@@ -552,7 +553,7 @@ A new warning is fixed, or it joins this list with a justification. Silence is n
 
 ** The test suite
 
-~make test~ runs two suites over the repository. bats covers the module contract (every module has its guarded makefile, and every goal plus both ~-update~ / ~-uninstall~ verbs parses through the goal-driven inclusion) and the behaviour of the CLIs — ~dot~ against a real stow in a sandbox HOME, ~vault~ against git, the privilege and PATH rules of the installers, lib.sh's engines behind a mocked ~uname~, the completion CLI behind mocked tools, the repo-sync CLI ~sync~ against sandbox git repos, the shell module's ~.profile~ sourcing every user completion into interactive bash. ERT (~make test-emacs~) covers the Emacs configuration: the loader stays thin, the optional packages stay unloaded, the documented bindings exist, the package network entry points are never called during startup, and the venv/fold commands behave. Every test is hermetic: a disposable HOME, PATH mocks, no network. The runners are the tools ~make dev~ guarantees on every node the dev module runs on; CI pins bats-core 1.14.0 beside ~make lint~ and installs ~emacs-nox~ for the ERT suite. The suite already paid for itself once: parsing every module goal at once exposed a double read of vault.mk — the include-once guard now lives inside ~include-module~.
+~make test~ runs two suites over the repository. bats covers the module contract (every module has its guarded makefile, and every goal plus both ~-update~ / ~-uninstall~ verbs parses through the goal-driven inclusion) and the behaviour of the CLIs — ~dot~ against a real stow in a sandbox HOME, ~vault~ against git, the privilege and PATH rules of the installers, lib.sh's engines behind a mocked ~uname~, the completion CLI behind mocked tools, the repo-sync CLI ~sync~ against sandbox git repos, the shell module's ~.profile~ sourcing every user completion into interactive bash. ERT (~make test-emacs~) covers the Emacs configuration: the loader stays thin, the optional packages stay unloaded, the documented bindings exist, the package network entry points are never called during startup, and the venv/fold commands behave. Every test is hermetic: a disposable HOME, PATH mocks, no network — and hermetic includes the login shell the suite runs from: the sandbox drops the environment this very system exports (~VAULT_ROOT~ from base.env, ~NTFY_URL~, the ~SYNC_*~ overrides) and pins git's config discovery into the disposable HOME (~GIT_CONFIG_GLOBAL~, ~GIT_CONFIG_SYSTEM=/dev/null~, ~GIT_TERMINAL_PROMPT=0~), so a commissioned shell cannot point a test at the real vault, send a real notification, or inherit a real gpgsign. The runners are the tools ~make dev~ guarantees on every node the dev module runs on; CI pins bats-core 1.14.0 beside ~make lint~ and installs ~emacs-nox~ for the ERT suite. The suite already paid for itself once: parsing every module goal at once exposed a double read of vault.mk — the include-once guard now lives inside ~include-module~.
 
 · Host support, honestly
 

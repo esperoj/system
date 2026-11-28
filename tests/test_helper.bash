@@ -16,6 +16,23 @@ sandbox() {
 	export XDG_STATE_HOME="$HOME/.local/state"
 	export XDG_DATA_HOME="$HOME/.local/share"
 	unset MACHINE_TYPE
+	# Hermetic means the outer environment too. .profile exports
+	# VAULT_ROOT on every node this system commissions, and sync
+	# honors NTFY_URL plus its own SYNC_* overrides: leaked into a
+	# test they point sync at the real vault and a real notification
+	# server (a real push then failed and every sync test went red
+	# on its exit code). vault.bats re-exports VAULT_ROOT itself,
+	# and sync.bats sets SYNC_* per command, so dropping them here
+	# changes no test that wants them.
+	unset VAULT_ROOT NTFY_URL SYNC_AUTO_REPOS SYNC_WATCH_REPOS \
+		SYNC_PROJECTS_DIR SYNC_INTERACTIVE
+	# git discovers config in places HOME does not cover: pin both
+	# files into the sandbox and refuse prompts, so a real gpgsign,
+	# hooksPath or insteadOf cannot change what the tests measure.
+	unset XDG_CONFIG_HOME
+	export GIT_CONFIG_GLOBAL="$HOME/.gitconfig"
+	export GIT_CONFIG_SYSTEM=/dev/null
+	export GIT_TERMINAL_PROMPT=0
 	mkdir -p "$XDG_STATE_HOME" "$XDG_DATA_HOME"
 }
 

@@ -134,3 +134,21 @@ design to reduce those daily friction of syncing and backup. i currently ran .lo
   init, 32MB after), which removes the periodic lag. =make test= now
   runs the ERT suite under =tests/emacs/= beside bats, and CI installs
   =emacs-nox=.
+
+* DONE The sync suite went red on a commissioned shell
+  `bats tests` run from a normal login shell failed the sync tests on
+  the exit code (`[ "$status" -eq 0 ]`, tests/sync.bats) while the same
+  suite passed on a clean host: the sandbox overrode HOME and the XDG
+  state/data dirs but not the environment this very system exports —
+  .profile sources base.env with `set -a`, so VAULT_ROOT reached the
+  tests, sync ran `vault sync` against the real vault, its push
+  failed, and `run sync` exited 1. sandbox() now drops VAULT_ROOT,
+  NTFY_URL and the SYNC_* overrides, and pins git's config discovery
+  (GIT_CONFIG_GLOBAL under the disposable HOME, GIT_CONFIG_SYSTEM=
+  /dev/null, GIT_TERMINAL_PROMPT=0) so a real gpgsign or hooksPath
+  cannot leak either; a regression test rebuilds that hostile
+  environment and asserts none of it reaches the run. The backup
+  recipe's routine comment also described a post-sync snapshot and a
+  prune the daily pass never ran — it now says what `daily` does —
+  and the README gained the manual benchmark workflow its layout
+  tree was missing.
