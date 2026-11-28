@@ -1,0 +1,225 @@
+#+TITLE: Email Notify Setup Guide
+#+AUTHOR: Esperoj
+#+STARTUP: overview
+#+FILETAGS: :system:mail:
+
+· What changed, and why curl
+
+The ntfy transport is gone. ~notify~ keeps its exact CLI contract —
+~notify <data> [<header>...]~ — but a header is now an RFC 5322 line
+(~"Subject: [system] sync on pc"~) and the transport is one curl SMTP
+upload. Python (~smtplib~) was the other candidate and lost on Axiom
+1: the pubnix contract already guarantees =curl=, it does not
+guarantee a Python, and curl was carrying the old ntfy transport
+beside every fetch this system makes. Zero new runtime dependencies;
+the only new dependency is an email account.
+
+What one send looks like on the wire (verified against a local SMTP
+server, CRLF and dot-stuffing included):
+
+#+BEGIN_EXAMPLE
+From: you@disroot.org
+To: you+system@disroot.org
+Subject: [system] sync on pc
+Date: Sat, 28 Nov 2026 13:25:21 +0000
+Message-ID: <1795872321.1800@pc>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+sync on pc: 2 repo(s) need attention: projects/pkit projects/system
+#+END_EXAMPLE
+
+Three senders exist after this change, and every failure mode is
+exactly one email:
+
+| Sender      | When                                              | Subject                            |
+|-------------+---------------------------------------------------+------------------------------------|
+| ~sync~      | cron run, watch repos need attention (unchanged)  | ~[system] sync on <host>~            |
+| ~daily~     | sync or the backup recipe exits nonzero (new)     | ~[system] daily failed on <host>~   |
+| your tasks  | any long-running job you wrap yourself (new)      | ~[system] <task> <state> on <host>~ |
+
+Silence means healthy. Nothing else emails.
+
+· The environment variables
+
+Five variables, one switch. They never live in this repo — they live
+in the private env files ~~/.config/env/*.env~ that ~.profile~ already
+loads with ~set -a~ (the shell module's contract; only =base.env= is
+stowed, a private =mail.env= beside it is never touched by ~dot~ or
+Stow and never committed).
+
+| Variable   | Meaning                                     | Example (Disroot)                    |
+|------------+---------------------------------------------+--------------------------------------|
+| SMTP_URL   | the submission endpoint                     | =smtps://disroot.org:465=            |
+| SMTP_USER  | SMTP AUTH username (full address at Disroot)| =you@disroot.org=                    |
+| SMTP_PASS  | the mailbox password                        | (the password itself)                |
+| MAIL_FROM  | envelope sender and From: header            | =you@disroot.org=                    |
+| MAIL_TO    | recipient; a =+tag= where the provider      | =you+system@disroot.org=             |
+|            | honors it gives filters a stable To: line   |                                      |
+
+~SMTP_URL~ is the switch everything else gates on: ~sync~ only emails
+when it is set, so a node without =mail.env= simply stays silent, the
+way a node without =NTFY_URL= used to.
+
+Create the file once per node:
+
+#+BEGIN_SRC sh
+umask 077
+cat > ~/.config/env/mail.env <<'EOF'
+SMTP_URL="smtps://disroot.org:465"
+SMTP_USER="you@disroot.org"
+SMTP_PASS="your mailbox password"
+MAIL_FROM="you@disroot.org"
+MAIL_TO="you+system@disroot.org"
+EOF
+chmod 600 ~/.config/env/mail.env
+#+END_SRC
+
+Strict permissions on purpose — the vault's rule (0600 secrets)
+applies to this file too. If you want it synced across nodes, keep it
+in the vault and =vault apply= it into place instead; a plain
+=~/.config/env/mail.env= is the zero-moving-parts default.
+
+** How the variables reach each context
+
+| Context                        | Sees them? | Why                                              |
+|--------------------------------+------------+---------------------------------------------------|
+| login shell                    | yes        | ~.profile~ sources every ~~/.config/env/*.env~     |
+| cron (~.local/bin/daily~)      | yes        | ~daily~ sources ~~/.profile~ before anything else  |
+| ~ssh host notify ...~          | yes        | one-shot ssh runs .profile on login                |
+| a plain script, no profile     | no         | source it yourself (below)                       |
+| make recipes / installers      | no         | deliberate: lib.sh exports only MACHINE_TYPE      |
+
+For an ad-hoc send from a context without the profile:
+
+#+BEGIN_SRC sh
+set -a; . ~/.config/env/mail.env; set +a
+notify "manual send from $(uname -n)" "Subject: [system] manual test"
+#+END_SRC
+
+· Setting up Disroot (the worked example)
+
+Disroot speaks plain ESMTP submission with the mailbox's own password
+— no app passwords, no OAuth dance:
+
+| Setting  | Value                                       |
+|----------+---------------------------------------------|
+| Server   | =disroot.org= (the MX and the submission host are the same machine; =smtp.disroot.org= does not resolve) |
+| Implicit TLS | =smtps://disroot.org:465= (recommended) |
+| STARTTLS | =smtp://disroot.org:587= (also fine — ~notify~ forces STARTTLS with ~--ssl-reqd~) |
+| Username | your full address, =you@disroot.org=        |
+| Password | the mailbox password                        |
+| IMAP (Thunderbird) | =disroot.org=, port 993, SSL/TLS   |
+
+Both URL shapes are verified against a local SMTP server; ~--ssl-reqd~
+is unconditional, so the password never crosses the wire in the clear
+on either one. Because the mail is submitted through Disroot's own
+SMTP, your SPF and DKIM line up by construction — that is most of the
+battle against the spam folder before it starts.
+
+** Sender pattern A — the plus-address (recommended where honored)
+
+Send from your own address to =you+system@disroot.org=. The =+system=
+part is ignored for delivery but preserved in the To: header, giving
+your filters the most stable key there is: not who sent it, not what
+it says — where it was addressed. One tag can grow into a taxonomy
+later (=you+pkit@=, =you+ci@= ...) without touching the rules.
+
+Honesty first: Disroot's plus-addressing support is not something
+this guide can promise from here. Test it before relying on it:
+
+#+BEGIN_SRC sh
+notify "plus-tag probe from $(uname -n)" "Subject: [system] probe"
+#+END_SRC
+
+If the mail arrives (check the Junk folder too), the tag is honored —
+keep pattern A. If it bounces, switch the file's =MAIL_TO= to your
+plain address and use pattern B.
+
+** Sender pattern B — a dedicated sender account
+
+If plus-tags are unavailable (or you prefer the stricter separation):
+create a second account — another Disroot account, or any provider's
+— that exists only to send machine mail, and point the main inbox at
+its output:
+
+#+BEGIN_SRC sh
+# on the node, ~/.config/env/mail.env with the sender account's creds
+SMTP_URL="smtps://disroot.org:465"
+SMTP_USER="you.machine@disroot.org"
+SMTP_PASS="that mailbox's password"
+MAIL_FROM="you.machine@disroot.org"
+MAIL_TO="you@disroot.org"
+#+END_SRC
+
+Filtering then keys on the From: line (=you.machine@disroot.org=) —
+just as stable as a plus-tag, at the cost of one more account to keep
+alive. This is also the pattern to use when the sender and the reader
+are different providers.
+
+· Other providers, when a node cannot use Disroot
+
+| Provider | SMTP_URL                          | Auth                          |
+|----------+-----------------------------------+-------------------------------|
+| Disroot  | =smtps://disroot.org:465=         | full address + mailbox password |
+| Gmail    | =smtps://smtp.gmail.com:465=      | full address + app password (2FA required; myaccount.google.com/apppasswords) |
+| Fastmail | =smtps://smtp.fastmail.com:465=   | full address + app password    |
+| Zoho     | =smtps://smtp.zoho.com:465=       | full address + app password    |
+| Proton   | (no direct SMTP)                  | requires Proton Mail Bridge running locally; point SMTP_URL at the bridge |
+| Office365| =smtp://smtp.office365.com:587=   | basic auth is being disabled by Microsoft — if AUTH fails, this is why, not your config |
+
+· First send, and what to check
+
+#+BEGIN_SRC sh
+notify "test from $(uname -n)" "Subject: [system] test"
+echo "exit: $?"
+#+END_SRC
+
+1. Exit 0 and one message in the inbox: done — go set up the inbox
+   rules (docs/email_inbox_rules_guide.org) so it lands in =System/=,
+   never in the inbox or Junk.
+2. Arrived but in Junk: mark it /Not Junk/ once (this trains the
+   filter), then create the inbox rule — the rule is the permanent
+   fix, the button is the one-time fix.
+3. Bounced (pattern A only): plus-addressing unsupported — switch to
+   pattern B.
+4. Nothing anywhere: run the troubleshooting table.
+
+** Troubleshooting
+
+| Symptom                        | Meaning                                            | Fix                                                       |
+|--------------------------------+----------------------------------------------------+-----------------------------------------------------------|
+| =curl: (67) Login denied=      | SMTP AUTH refused                                  | wrong SMTP_USER/SMTP_PASS; at Disroot the username is the full address |
+| =curl: (35) SSL connect error= | TLS handshake failed                               | wrong scheme/port pairing: 465 wants =smtps://=, 587 wants =smtp://= |
+| =curl: (7) Failed to connect=  | host/port unreachable                              | a firewall on 465/587 — try the other port                |
+| =SMTP_URL must be set=         | the env file did not reach this context            | login shell? ~daily~? else ~set -a; . ~/.config/env/mail.env~ |
+| exit 0 but no mail             | delivered into Junk, or the plus-tag bounced       | check Junk first; then the sender's bounce (pattern A)    |
+| two emails for one failure     | a watch repo also needed attention during a failed daily | intended: one email per fact, not one per run          |
+
+· Using notify from long-running tasks
+
+Any job that outlives a coffee break can report its terminal state —
+digital preservation runs, pkit jobs, big archiving passes. One email
+per terminal state, subject always ~[system] <task> <state>~:
+
+#+BEGIN_SRC sh
+pkit archive --big-run \
+        && notify "pkit archive finished on $(uname -n)" \
+                  "Subject: [system] pkit archive done on $(uname -n)" \
+        || notify "pkit archive FAILED on $(uname -n)" \
+                  "Subject: [system] pkit archive failed on $(uname -n)"
+#+END_SRC
+
+Conventions worth keeping:
+
+- Always the ~[system]~ prefix — it is the fallback filter key and it
+  keeps one search (~subject:[system]~) honest across years.
+- Done emails are for confidence, failed emails are for action; if
+  the chatty ones get noisy, let the inbox rules file the ~done~
+  variant and leave ~failed~ in the inbox.
+- The body is plain text, one line is enough, and the first line is
+  what a notification badge will show — make it the conclusion, not
+  the context.
+- Header lines must stay ASCII (RFC 2047 encoding is a job for real
+  mail clients); the body can be UTF-8.

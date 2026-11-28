@@ -1,0 +1,229 @@
+#+TITLE: Email Inbox Rules & Folder Organization
+#+AUTHOR: Esperoj
+#+STARTUP: overview
+#+FILETAGS: :system:mail:
+
+· The goal
+
+The inbox is the list of things that need a human, nothing else.
+Machine mail — this system's summaries, forge and CI chatter,
+newsletters, mailing lists — is filed by rules the moment it arrives,
+so the inbox stops being a place where notifications bury letters from
+people. Nothing is deleted by a rule on arrival and nothing silently
+disappears: everything lands in exactly one folder, and the folder is
+the archive.
+
+Two guides, one contract: docs/email_notify_setup_guide.org puts the
+mail on the wire; this one decides where it lands.
+
+· The three keys, in order of stability
+
+A rule is only as good as the header it matches. Rank the keys, always
+match on the most stable one a source offers:
+
+| Rank | Key                  | Why it holds                                       |
+|------+----------------------+----------------------------------------------------|
+| 1    | To: plus-tag         | chosen by the sender (you); senders rewrite their own From and subjects far more often than you re-address your own machines |
+| 2    | From: exact address  | the one address a machine sends from               |
+| 3    | List-Id header       | set by real mailing list software, unspoofable by display-name fiddling |
+| 4    | From: domain         | forges and CI systems that fan out many addresses  |
+| 5    | Subject prefix       | ~[system]~, ~[repo/name]~ — stable by convention   |
+
+Never match on: display names (localized, imitated by phishers), whole
+subject sentences (reworded by every redesign), or "body contains".
+
+** What this system's mail looks like
+
+Every email ~notify~ sends carries, by construction:
+
+- =From:= =MAIL_FROM= (your address, or the dedicated machine address)
+- =To:= =MAIL_TO= — =you+system@disroot.org= under pattern A
+- =Subject:= =**[system]** ...= — =sync on <host>=, =daily failed on
+  <host>=, =<task> <state> on <host>=
+
+So the filing rules for this system's mail have three independent
+keys available; use them in this order: the plus-tag, then the From
+address, then the ~[system]~ prefix as the fallback that also catches
+mail from nodes you have not reconfigured yet.
+
+· Where rules can live (Disroot + Thunderbird)
+
+Mail is read in Thunderbird, but a rule can run in two places, and the
+difference is /when/ it runs:
+
+| Layer                          | Runs when                        | Needs Thunderbird running? |
+|--------------------------------+----------------------------------+----------------------------|
+| Server-side (webmail: Settings → Filters) | at delivery, on Disroot's server | no                         |
+| Client-side (Thunderbird: Message Filters) | at fetch, on your machine       | yes                        |
+
+Prefer the server-side layer when the webmail offers it (Roundcube's
+Filters section speaks Sieve behind the curtain): the mail is filed
+before any device sees it, and every client — Thunderbird, phone, the
+webmail itself — shows the same tidy folders. Do it in Thunderbird
+when the webmail has no Filters section, or when a rule needs
+Thunderbird-only actions. Folders are shared either way: a folder
+created in Thunderbird on the Disroot IMAP account is the same folder
+the server-side rules see, and vice versa.
+
+Create the folder tree once (in Thunderbird: right-click the Disroot
+account → New Folder; in webmail: Settings → Folders):
+
+#+BEGIN_EXAMPLE
+you@disroot.org
+├── Inbox            # humans, and machines that need action — small
+├── System           # this repo: sync, daily, task reports
+├── CI               # forges and CI: PRs, runs, reviews
+├── Lists            # mailing lists, newsletters
+├── Billing          # invoices, receipts, banks (kept, searched, not scanned)
+└── Orders           # order confirmations, shipping
+#+END_EXAMPLE
+
+Folders are named by purpose, not by sender: =CI=, not =GitHub= — the
+next forge gets the same folder the day it appears.
+
+· Server-side rules (Disroot webmail)
+
+In the webmail (webmail.disroot.org):
+
+1. =Settings= → =Filters= → =New filter=. If the =Filters= section is
+   absent, skip to the Thunderbird section — that is a hosting
+   decision, not a configuration error.
+2. Rule for the system's mail — name =system=:
+   - Scope: =all messages= (incoming is enough; =all= lets you re-run
+     the rule over the inbox later).
+   - Match: =To= =contains= =you+system@disroot.org= (pattern A) — or
+     =From= =is= =you.machine@disroot.org= (pattern B).
+   - Actions: =Move message to= =System=.
+   - Fallback rule — name =system-subject=, only if you also want the
+     prefix to catch strays: =Subject= =contains= =[system]= → move to
+     =System=.
+3. Rule for lists — name =lists=:
+   - Match: a custom header =List-Id= =contains= =.= (any value: real
+     lists always set it) — or, per newsletter, =From= =is= the exact
+     sender address.
+   - Actions: =Move message to= =Lists=.
+4. Rule for the forge/CI — name =ci=:
+   - Match: =From= =contains= =github.com= (repeat per forge:
+     =codeberg.org=, your own forge's domain).
+   - Actions: =Move message to= =CI=.
+
+Server-side rules never mark anything read — filing is theirs,
+reading is yours.
+
+· Client-side rules (Thunderbird)
+
+Thunderbird's own filters, for when the server layer is unavailable or
+insufficient:
+
+1. ≡ menu → =Tools= → =Message Filters= → =New=.
+2. Filter name =system=, =For incoming messages= (the "Getting new
+   mail" default), match =any=:
+   - =To= =contains= =you+system@disroot.org=
+   - =From= =is= =you.machine@disroot.org= (pattern B)
+   - =Subject= =contains= =[system]=
+   Action: =Move message to= → the =System= folder on the Disroot
+   account. Leave =Mark as read= OFF for this rule — a =daily failed=
+   mail must still be unread when you open the folder.
+3. Filter =ci=, match =any= of =From= =contains= =github.com= (and the
+   other forges). Action: =Move to= =CI=. Optionally add =Mark as
+   read= — CI chatter is reference material.
+   - The failure-only refinement: add a *second, earlier* filter
+     =ci-failures=: match =any= of =Subject= =contains= =failed=,
+     =Subject= =contains= =error=, =From= =contains= =actions@github.com=
+     — action: move to =Inbox= (or =System=) and leave unread. Filter
+     order matters: Thunderbird applies them top to bottom; keep
+     =ci-failures= above =ci= so the interesting mail is rescued
+     before the rest is filed. Orphaned success mail drowns; failures
+     surface.
+4. Filter =lists=: Thunderbird does not offer List-Id in the dropdown
+   by default — in the filter editor pick =Customize= in the left
+   dropdown, add the header =List-Id=, then match =List-Id=
+   =contains= =.= → move to =Lists=, =Mark as read= on.
+
+Two Thunderbird facts worth knowing:
+
+- Run once over the backlog: =Message Filters= → select a filter →
+  =Run Now= on the Inbox, after a big migration or before trusting a
+  new rule.
+- Filters only run while Thunderbird runs. Mail that arrived while it
+  was closed gets filtered at the next fetch — another reason the
+  server-side layer is preferred.
+
+** Junk handling, both layers
+
+The system's mail starts as self-sent machine mail — exactly the shape
+spam filters profile. Three moves keep it out of the Junk folder:
+
+1. Train once: the first message that lands in Junk → select it →
+   =Message= → =Mark= → =Not Junk= (the adaptive filter learns the
+   sender from one correction more reliably than from ten rules).
+2. Allowlist the sender: Account Settings → the Disroot account →
+   =Junk Settings= → enable "Do not mark mail as junk if the sender is
+   in my: Personal Address Book", and put the From address (pattern B)
+   or your own address (pattern A) in the address book. This is the
+   permanent client-side guarantee.
+3. File it before judgment: rules that move a message to its folder
+   take it out of the junk decision's path — filing and junking are
+   different questions, and a filed message that was going to be
+   borderline-junk usually just stays filed.
+
+On the server side, check the webmail's Junk folder once after the
+first send; Disroot tags spam at delivery, and one =Not spam=
+correction there covers every device at once.
+
+** Retention: folders clean themselves
+
+Notification mail is worthless after a week and lists after a month;
+billing and orders are forever. Thunderbird can enforce this per
+folder: right-click the folder → =Properties= → =Retention Policy= →
+"Delete messages older than N days":
+
+| Folder  | Retention   | Rationale                                        |
+|---------+-------------+--------------------------------------------------|
+| System  | 90 days     | failure mail is only interesting while recent    |
+| CI      | 30 days     | the forge's web UI is the real archive           |
+| Lists   | 30-90 days  | search the list's own archive for anything older |
+| Billing | forever     | legal paper trail                                |
+| Orders  | forever (or until the warranty dies) | returns need receipts      |
+
+Server-side rules cannot do retention — that is Thunderbird's job, or
+a manual purge (select folder, sort by date, select old, delete)
+during the quarterly review.
+
+· The pattern for any new source
+
+When a new sender starts cluttering the inbox, run it through the same
+decision tree — this is the reusable part, source-agnostic:
+
+#+BEGIN_EXAMPLE
+                       ┌─ human? ──────────────► stays in Inbox
+                       │
+new recurring sender ──┤
+                       │                    ┌─ ever needs action ─► file, keep UNREAD
+                       └─ machine? ─────────┤
+                                            └─ never needs action ─► file, mark read,
+                                                                      set retention
+#+END_EXAMPLE
+
+Then write the rule against the checklist:
+
+1. Key: most stable header the source offers, ranked as in the table
+   at the top (plus-tag > exact From > List-Id > From domain >
+   subject prefix).
+2. Folder: an existing purpose folder, or a new one only if the
+   purpose is genuinely new — never one folder per sender.
+3. Read: unread if a human might act, read if it is reference.
+4. Retention: set it the day the folder is created.
+5. Layer: server-side if the webmail allows, Thunderbird otherwise.
+6. Test: =Run Now= on a sample, or send yourself one probe.
+
+· The maintenance loop
+
+- Weekly, two minutes, in the inbox: every message left after the
+  rules ran is either a human (answer it) or a rule that does not
+  exist yet (write it — the tree above). An inbox that cannot be
+  emptied in two minutes is a rules debt, not a mail volume problem.
+- Quarterly: review folder retention policies, delete filters for
+  senders that went quiet, and check the Junk folder for anything the
+  rules should have rescued — a false positive there is a rule whose
+  key was less stable than it looked.

@@ -11,8 +11,9 @@
 #   watch — every other git repo directly under ~/projects/ (pkit,
 #           system, ...): code, never auto-committed. From a terminal,
 #           sync shows each repo's status and asks what to do; from cron
-#           it only reports, plus one ntfy summary through `notify` when
-#           NTFY_URL is set. Override with SYNC_WATCH_REPOS (same shape).
+#           it only reports, plus one email summary through `notify`
+#           when SMTP_URL is set. Override with SYNC_WATCH_REPOS (same
+#           shape).
 #
 # Exit code: 0 when everything is synced or reported; 1 when an auto
 # repo or the vault failed to sync (loudly, git's own error visible).
@@ -259,8 +260,9 @@ if [ "$FAILED" -gt 0 ]; then
 fi
 if [ "$ATTN" -gt 0 ]; then
 	echo "sync: $ATTN repo(s) need attention:$ATTN_NAMES"
-	if [ "$INTERACTIVE" != 1 ] && [ -n "${NTFY_URL:-}" ] && command -v notify >/dev/null 2>&1; then
-		if ! notify "sync on $(uname -n): $ATTN repo(s) need attention:$ATTN_NAMES" "Title: sync"; then
+	if [ "$INTERACTIVE" != 1 ] && [ -n "${SMTP_URL:-}" ] && command -v notify >/dev/null 2>&1; then
+		if ! notify "sync on $(uname -n): $ATTN repo(s) need attention:$ATTN_NAMES" \
+			"Subject: [system] sync on $(uname -n)"; then
 			echo "sync: notify failed" >&2
 		fi
 	fi

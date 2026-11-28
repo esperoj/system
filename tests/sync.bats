@@ -175,6 +175,52 @@ upstream() {
 	rm -rf "$up"
 }
 
+@test "sync: the attention summary is one email with a [system] subject" {
+	up=$(upstream)
+	mkdir -p "$HOME/projects"
+	git clone -q "$up" "$HOME/projects/pkit"
+	printf 'wip\n' >>"$HOME/projects/pkit/file"
+	mocks
+	cat >"$MOCKS/notify" <<'EOF'
+#!/bin/sh
+# test mock: record the one email sync is allowed to send
+printf '%s\n' "$*" >"$HOME/notify.args"
+exit 0
+EOF
+	chmod +x "$MOCKS/notify"
+	export SMTP_URL="smtp://smtp.example:587"
+	run sync
+	[ "$status" -eq 0 ]
+	[ -f "$HOME/notify.args" ]
+	case "$(cat "$HOME/notify.args")" in
+	*"Subject: [system] sync on"*) ;;
+	*) return 1 ;;
+	esac
+	case "$(cat "$HOME/notify.args")" in
+	*"projects/pkit"*) ;;
+	*) return 1 ;;
+	esac
+	rm -rf "$up"
+}
+
+@test "sync: a failed notify is loud but not a failure" {
+	up=$(upstream)
+	mkdir -p "$HOME/projects"
+	git clone -q "$up" "$HOME/projects/pkit"
+	printf 'wip\n' >>"$HOME/projects/pkit/file"
+	mocks
+	printf '#!/bin/sh\nexit 1\n' >"$MOCKS/notify"
+	chmod +x "$MOCKS/notify"
+	export SMTP_URL="smtp://smtp.example:587"
+	run sync
+	[ "$status" -eq 0 ]
+	case "$output" in
+	*"sync: notify failed"*) ;;
+	*) return 1 ;;
+	esac
+	rm -rf "$up"
+}
+
 @test "sync: a commissioned shell's environment never leaks in" {
 	# The real-world failure behind this fix: .profile exports
 	# VAULT_ROOT (base.env, set -a) on every node this system
@@ -190,7 +236,11 @@ upstream() {
 	git -C "$_up" add file
 	git -C "$_up" commit -qm base
 	export VAULT_ROOT="$_up"
-	export NTFY_URL="https://ntfy.example/leaked"
+	export SMTP_URL="smtp://smtp.example/leaked"
+	export SMTP_USER="leaked"
+	export SMTP_PASS="leaked"
+	export MAIL_FROM="leaked@disroot.org"
+	export MAIL_TO="leaked@disroot.org"
 	export SYNC_AUTO_REPOS="leaked-auto"
 	export SYNC_WATCH_REPOS="leaked-watch"
 	export SYNC_PROJECTS_DIR="$_up"
@@ -210,7 +260,7 @@ upstream() {
 	run sync
 	[ "$status" -eq 0 ]
 	case "$output" in
-	*leak* | *ntfy.example* | *"$_up"*) return 1 ;;
+	*leak* | *smtp.example* | *"$_up"*) return 1 ;;
 	esac
 	case "$output" in
 	*"vault: not present; skipped"*) ;;

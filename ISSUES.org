@@ -173,3 +173,35 @@ design to reduce those daily friction of syncing and backup. i currently ran .lo
   a second time on a pty through `script` under a timeout, so the
   class of regression that hangs a human's `make test` fails a red job
   in minutes instead.
+
+* DONE Replace the ntfy transport with email through curl SMTP
+  `notify` keeps its CLI contract — `notify <data> [<header>...]` —
+  but a header is now an RFC 5322 line ("Subject: [system] ...") and
+  the transport is one curl SMTP upload, so the only new dependency
+  is an account: Python was the candidate and lost on Axiom 1 — the
+  pubnix contract already guarantees curl, it does not guarantee a
+  Python. The message is assembled with CRLF endings because curl
+  passes the upload through verbatim and only dot-stuffs CRLF-delimited
+  lines — a bare-LF body line that is exactly "." would end the DATA
+  block one line early; Date, Message-ID and the MIME trio are always
+  present, and a missing Subject earns one warning and still sends,
+  because subjectless machine mail reads as spam and the whole point
+  is a filterable inbox. Settings live only in the private
+  ~/.config/env/*.env files .profile already loads (SMTP_URL,
+  SMTP_USER, SMTP_PASS, MAIL_FROM, MAIL_TO — never in this repo), and
+  --ssl-reqd is unconditional: smtps:// keeps its implicit TLS,
+  smtp:// must negotiate STARTTLS or the send refuses to happen —
+  credentials never cross the wire in the clear. sync gates its
+  summary on SMTP_URL now and prefixes the subject [system]; daily
+  sends one [system] daily failed email naming the failed phase(s)
+  and the log's path when sync or the backup recipe exits nonzero,
+  so every failure mode is exactly one email and silence means
+  healthy. notify.bats pins the message shape (CRLF, header order,
+  body last) and the transport flags behind a mocked curl; daily.bats
+  pins the failure email, the clean-day silence and a failed notify
+  never masking the verdict, behind mocked sync/make/notify; sync.bats
+  pins the email summary and its failure tolerance, and the leak
+  regression now drops the SMTP_* / MAIL_* set beside NTFY's old
+  variable. Setup and inbox rules: docs/email_notify_setup_guide.org
+  and docs/email_inbox_rules_guide.org — Disroot as the worked
+  example, Thunderbird and server-side sieve as the filing crew.

@@ -1,5 +1,28 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/sh
+# notify - one email instead of one ntfy push. Same CLI contract as the
+# ntfy days - `notify <data> [<header>...]` - but a header is now an
+# RFC 5322 line ("Subject: [system] ..."), and the transport is curl's
+# SMTP, so the only new dependency is an account: the pubnix contract
+# already guarantees curl, and curl was carrying the old transport.
+# The settings never live in this repo - .profile loads the private
+# ~/.config/env/*.env files (docs/email_notify_setup_guide.org):
+#   SMTP_URL   smtps://disroot.org:465 (implicit TLS) or
+#              smtp://host:587 (STARTTLS - forced, never plain)
+#   SMTP_USER  SMTP AUTH username (at Disroot: the full address)
+#   SMTP_PASS  the mailbox password
+#   MAIL_FROM  envelope sender and From: header
+#   MAIL_TO    recipient; a +tag where the provider honors it gives
+#              filters a stable To: line to match
+#
+# The message is assembled with CRLF endings because curl passes the
+# upload through verbatim and only dot-stuffs CRLF-delimited lines - a
+# bare-LF body line that is exactly "." would end the DATA block one
+# line early. A missing Subject header earns one warning and still
+# sends: subjectless machine mail reads as spam, and the whole point
+# is a filterable inbox (docs/email_inbox_rules_guide.org).
+#
+# usage: notify <data> [<header>...]
+set -eu
 
 [ $# -ge 1 ] || {
 	echo "usage: notify <data> [<header>...]" >&2
@@ -9,12 +32,41 @@ set -euo pipefail
 data=$1
 shift
 
-args=(-SsfL -H "Content-Type: text/plain")
+: "${SMTP_URL:?SMTP_URL must be set}"
+: "${SMTP_USER:?SMTP_USER must be set}"
+: "${SMTP_PASS:?SMTP_PASS must be set}"
+: "${MAIL_FROM:?MAIL_FROM must be set}"
+: "${MAIL_TO:?MAIL_TO must be set}"
 
+subject=0
 for header in "$@"; do
-	args+=(-H "$header")
+	case $header in
+	Subject:*) subject=1 ;;
+	esac
 done
+[ "$subject" = 1 ] || echo "notify: no Subject header; unlabelled machine mail reads as spam" >&2
 
-: "${NTFY_URL:?NTFY_URL must be set}"
-
-curl "${args[@]}" -d "$data" "$NTFY_URL"
+# --ssl-reqd is unconditional: smtps:// keeps its implicit TLS, and
+# smtp:// must negotiate STARTTLS before AUTH or the send refuses to
+# happen - the password never crosses the wire in the clear.
+{
+	printf 'From: %s\r\n' "$MAIL_FROM"
+	printf 'To: %s\r\n' "$MAIL_TO"
+	for header in "$@"; do
+		printf '%s\r\n' "$header"
+	done
+	printf 'Date: %s\r\n' "$(LC_ALL=C date -R)"
+	printf 'Message-ID: <%s.%s@%s>\r\n' "$(date +%s)" "$$" "$(uname -n)"
+	printf 'MIME-Version: 1.0\r\n'
+	printf 'Content-Type: text/plain; charset=UTF-8\r\n'
+	printf 'Content-Transfer-Encoding: 8bit\r\n'
+	printf '\r\n'
+	printf '%s\n' "$data" | while IFS= read -r _line; do
+		printf '%s\r\n' "$_line"
+	done
+} | curl -sS --ssl-reqd \
+	--url "$SMTP_URL" \
+	--mail-from "$MAIL_FROM" \
+	--mail-rcpt "$MAIL_TO" \
+	--user "$SMTP_USER:$SMTP_PASS" \
+	--upload-file -
