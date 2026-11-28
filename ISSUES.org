@@ -108,3 +108,12 @@ design to reduce those daily friction of syncing and backup. i currently ran .lo
   bats tests pin the auto push, the never-auto-commit watch group, the
   vault delegation, and every interactive answer; `clone-dep` gained
   its lost exec bit along the way.
+* TODO Split init.el jnto more modular approach since I want to modify it further. Take for example, make sure some packages exist on mobile too since mobile didnt have elpa. The current one didnt work on mobile.
+- Mobile should work
+- It should be fast without lag, currently it lag once in a while.
+- It should not check the internet unnecassry for update, only when a function is need by package but not exist them we request. that mean ensure packages is lazy since we domt need to ensure every package at boot this make startup faster.
+- Learn from modern emacs docs and othwe people since I use modern emacs
+- Make navigation and text folding and automplete better to fill all workflow
+- For example, go to defination and back, cycle through treesitter, back and forth of buffer, folding comment, folding top level, etc.
+- Make test for them too
+- Try to fit my philosophy by trying not to use external package aside from what I already have used.
